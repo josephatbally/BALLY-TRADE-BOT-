@@ -90,7 +90,8 @@ SUPPORTED_SIGNALS = (
 )
 
 MINIMUM_RR = 1.0
-MAXIMUM_RR = 3.0
+BENCHMARK_RR = 3.0
+MAXIMUM_RR = BENCHMARK_RR
 
 
 # ======================================================================
@@ -169,7 +170,7 @@ def risk_execution_bridge_info() -> Dict[str, Any]:
         ],
 
         "minimum_rr": MINIMUM_RR,
-        "maximum_rr": MAXIMUM_RR,
+        "benchmark_rr": BENCHMARK_RR,
 
         "decision_generation": False,
         "decision_override": False,
@@ -194,7 +195,7 @@ def risk_execution_bridge_info() -> Dict[str, Any]:
         "mt5_order_send": False,
 
         "preferred_lot_hard": False,
-        "maximum_rr_enforced": True,
+        "benchmark_rr_enforced": True,
 
         "risk_authority": "risk_manager.py",
         "bridge_authority": "this_module",

@@ -1503,6 +1503,14 @@ def shutdown_mt5() -> None:
 
     _connection.shutdown()
 
+def get_account_info() -> Any:
+    """
+    Return the current MT5 trading account information.
+
+    This delegates to the shared MT5 connection.
+    It does not calculate or modify trading data.
+    """
+    return _connection.account_info()
 
 __all__ = [
     "LOGICAL_MARKETS",
@@ -1512,6 +1520,7 @@ __all__ = [
     "initialize_mt5",
     "is_mt5_connected",
     "mt5_status",
+    "get_account_info",
     "resolve_symbol",
     "ensure_symbol",
     "get_symbol_info",
