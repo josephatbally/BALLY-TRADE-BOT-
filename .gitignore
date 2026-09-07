@@ -144,3 +144,41 @@ pnpm-debug.log*
 
 # Never commit machine-specific paths
 *.machine.json
+
+# -------------------------
+# Local project archives / temporary folders
+# -------------------------
+BALLY_FLOW_mobile.zip
+BOT/
+Downloads/
+Gradle/
+TRADE
+
+# Development backup / pre-change files
+*.backup*
+*.pre-*
+
+# Temporary diagnostic scripts
+test_live_market_*_diagnostic.py
+test_live_market_output.py
+test_live_market_diagnostic.py
+
+# -------------------------
+# BALLY FLOW mobile local files
+# -------------------------
+mobile/*.backup
+mobile/*.rar
+mobile/*.log
+mobile/*_log.txt
+mobile/android/*.log
+mobile/android/*_pid*.log
+mobile/android/app/build/
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/node_modules/
+
+# Android debug signing
+mobile/android/app/debug.keystore
+
+# Temporary mobile development files
+mobile/src/temp_*.txt

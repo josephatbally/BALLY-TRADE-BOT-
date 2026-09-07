@@ -1,4 +1,4 @@
-
+﻿
 """
 BALLY TRADE BOT
 MAIN ANALYSIS ORCHESTRATOR
@@ -7,19 +7,19 @@ ARCHITECTURE
 ------------
 
 MT5
-  ↓
+  â†“
 symbol_data.py
-  ↓
-H4 → H1 → M15 TOP-DOWN DATA
-  ↓
+  â†“
+H4 â†’ H1 â†’ M15 TOP-DOWN DATA
+  â†“
 TechnicalEngine
-  ↓
+  â†“
 H4 / H1 / M15 technical evidence
-  ↓
+  â†“
 decision_engine.decide()
-  ↓
+  â†“
 TECHNICAL MARKET RESULT
-  ↓
+  â†“
 scanner.py / hybrid_engine.py / downstream modules
 
 RESPONSIBILITY
@@ -990,6 +990,395 @@ def extract_primary_technical_metrics(
 # RESULT ASSEMBLY
 # =====================================================================
 
+def build_structural_context(
+    technical_analysis: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Normalize the real Technical Engine structural schema into the
+    structural-context contract consumed by downstream risk logic.
+
+    This function ONLY normalizes existing structural evidence.
+
+    It does NOT:
+        - generate a trading decision
+        - select BUY / SELL
+        - calculate SL / TP
+        - calculate position size
+        - authorize execution
+        - access MT5
+    """
+
+    structural_context: Dict[str, Any] = {
+        "swing_low": None,
+        "swing_high": None,
+        "liquidity_sweep_low": None,
+        "liquidity_sweep_high": None,
+        "order_block_low": None,
+        "order_block_high": None,
+        "supply_low": None,
+        "supply_high": None,
+        "demand_low": None,
+        "demand_high": None,
+
+        # Preserve all candidates by timeframe.
+        "swing_lows": {},
+        "swing_highs": {},
+        "liquidity_sweeps": {},
+        "liquidity_sweep_lows": {},
+        "liquidity_sweep_highs": {},
+        "order_block_lows": {},
+        "order_block_highs": {},
+        "demand_lows": {},
+        "demand_highs": {},
+        "supply_lows": {},
+        "supply_highs": {},
+
+        # Preserve complete structural evidence by timeframe.
+        "timeframes": {},
+    }
+
+    timeframes = safe_dict(
+        technical_analysis.get("timeframes")
+    )
+
+    for timeframe in REQUIRED_TIMEFRAMES:
+        timeframe_result = safe_dict(
+            timeframes.get(timeframe)
+        )
+
+        analysis = safe_dict(
+            timeframe_result.get("analysis")
+        )
+
+        if not analysis:
+            continue
+
+        structural_context["timeframes"][timeframe] = {
+            "market_structure": safe_dict(
+                analysis.get("market_structure")
+            ),
+            "liquidity": safe_dict(
+                analysis.get("liquidity")
+            ),
+            "order_blocks": safe_dict(
+                analysis.get("order_blocks")
+            ),
+            "supply_demand": safe_dict(
+                analysis.get("supply_demand")
+            ),
+        }
+
+        # -----------------------------------------------------------
+        # MARKET STRUCTURE
+        #
+        # Real schema:
+        # market_structure.swing_lows[]
+        # market_structure.swing_highs[]
+        # -----------------------------------------------------------
+
+        market_structure = safe_dict(
+            analysis.get("market_structure")
+        )
+
+        swing_lows = market_structure.get("swing_lows")
+        swing_highs = market_structure.get("swing_highs")
+
+        if isinstance(swing_lows, list):
+            valid_lows = []
+
+            for swing in swing_lows:
+                if not isinstance(swing, dict):
+                    continue
+
+                price = safe_float(
+                    swing.get("price")
+                )
+
+                if price > 0:
+                    valid_lows.append(price)
+
+            if valid_lows:
+                latest_low = valid_lows[-1]
+
+                structural_context["swing_lows"][timeframe] = latest_low
+
+                if (
+                    structural_context["swing_low"] is None
+                    or timeframe == "M15"
+                ):
+                    structural_context["swing_low"] = latest_low
+
+        if isinstance(swing_highs, list):
+            valid_highs = []
+
+            for swing in swing_highs:
+                if not isinstance(swing, dict):
+                    continue
+
+                price = safe_float(
+                    swing.get("price")
+                )
+
+                if price > 0:
+                    valid_highs.append(price)
+
+            if valid_highs:
+                latest_high = valid_highs[-1]
+
+                structural_context["swing_highs"][timeframe] = latest_high
+
+                if (
+                    structural_context["swing_high"] is None
+                    or timeframe == "M15"
+                ):
+                    structural_context["swing_high"] = latest_high
+
+        # -----------------------------------------------------------
+        # LIQUIDITY
+        #
+        # Real schema:
+        # liquidity.last_sweep
+        # -----------------------------------------------------------
+
+        liquidity = safe_dict(
+            analysis.get("liquidity")
+        )
+
+        last_sweep = liquidity.get("last_sweep")
+
+        if isinstance(last_sweep, dict):
+            sweep_price = safe_float(
+                last_sweep.get("price")
+            )
+
+            direction = str(
+                last_sweep.get(
+                    "direction",
+                    "",
+                )
+            ).upper()
+
+            if sweep_price > 0:
+                structural_context["liquidity_sweeps"][
+                    timeframe
+                ] = last_sweep
+
+                if direction == "BUY":
+                    structural_context["liquidity_sweep_lows"][
+                        timeframe
+                    ] = sweep_price
+
+                    if (
+                        structural_context["liquidity_sweep_low"] is None
+                        or timeframe == "M15"
+                    ):
+                        structural_context["liquidity_sweep_low"] = (
+                            sweep_price
+                        )
+
+                elif direction == "SELL":
+                    structural_context["liquidity_sweep_highs"][
+                        timeframe
+                    ] = sweep_price
+
+                    if (
+                        structural_context["liquidity_sweep_high"] is None
+                        or timeframe == "M15"
+                    ):
+                        structural_context["liquidity_sweep_high"] = (
+                            sweep_price
+                        )
+
+        # -----------------------------------------------------------
+        # ORDER BLOCKS
+        #
+        # Real schema:
+        # order_blocks.valid_order_blocks[]
+        # each block contains zone.low / zone.high
+        # -----------------------------------------------------------
+
+        order_blocks = safe_dict(
+            analysis.get("order_blocks")
+        )
+
+        valid_order_blocks = order_blocks.get(
+            "valid_order_blocks"
+        )
+
+        if isinstance(valid_order_blocks, list):
+            for block in valid_order_blocks:
+                if not isinstance(block, dict):
+                    continue
+
+                direction = str(
+                    block.get(
+                        "direction",
+                        block.get(
+                            "side",
+                            "",
+                        ),
+                    )
+                ).upper()
+
+                zone = safe_dict(
+                    block.get("zone")
+                )
+
+                low = safe_float(
+                    zone.get("low")
+                    if zone
+                    else block.get("low")
+                )
+
+                high = safe_float(
+                    zone.get("high")
+                    if zone
+                    else block.get("high")
+                )
+
+                if low <= 0 or high <= 0:
+                    continue
+
+                if direction == "BUY":
+                    structural_context[
+                        "order_block_lows"
+                    ].setdefault(timeframe, []).append(low)
+
+                elif direction == "SELL":
+                    structural_context[
+                        "order_block_highs"
+                    ].setdefault(timeframe, []).append(high)
+
+        # -----------------------------------------------------------
+        # SUPPLY / DEMAND
+        #
+        # Real schema:
+        # supply_demand.valid_zones[]
+        # each zone contains zone.low / zone.high
+        # -----------------------------------------------------------
+
+        supply_demand = safe_dict(
+            analysis.get("supply_demand")
+        )
+
+        valid_zones = supply_demand.get(
+            "valid_zones"
+        )
+
+        if isinstance(valid_zones, list):
+            for zone_record in valid_zones:
+                if not isinstance(zone_record, dict):
+                    continue
+
+                zone_type = str(
+                    zone_record.get(
+                        "type",
+                        zone_record.get(
+                            "zone_type",
+                            zone_record.get(
+                                "direction",
+                                "",
+                            ),
+                        ),
+                    )
+                ).upper()
+
+                zone = safe_dict(
+                    zone_record.get("zone")
+                )
+
+                low = safe_float(
+                    zone.get("low")
+                    if zone
+                    else zone_record.get("low")
+                )
+
+                high = safe_float(
+                    zone.get("high")
+                    if zone
+                    else zone_record.get("high")
+                )
+
+                if low <= 0 or high <= 0:
+                    continue
+
+                if zone_type == "DEMAND" or zone_type == "BUY":
+                    structural_context[
+                        "demand_lows"
+                    ].setdefault(timeframe, []).append(low)
+
+                    structural_context[
+                        "demand_highs"
+                    ].setdefault(timeframe, []).append(high)
+
+                elif zone_type == "SUPPLY" or zone_type == "SELL":
+                    structural_context[
+                        "supply_lows"
+                    ].setdefault(timeframe, []).append(low)
+
+                    structural_context[
+                        "supply_highs"
+                    ].setdefault(timeframe, []).append(high)
+
+    # ---------------------------------------------------------------
+    # CONVERT PRESERVED CANDIDATES INTO THE EXISTING FLAT CONTRACT
+    #
+    # M15 is preferred because it is the execution timeframe.
+    # H1 and H4 remain preserved above for provenance.
+    # ---------------------------------------------------------------
+
+    def latest_candidate(
+        values: Dict[str, Any],
+        prefer: tuple = ("M15", "H1", "H4"),
+    ) -> Optional[float]:
+        for timeframe in prefer:
+            value = values.get(timeframe)
+
+            if isinstance(value, list):
+                if value:
+                    numeric = [
+                        safe_float(item)
+                        for item in value
+                        if safe_float(item) > 0
+                    ]
+
+                    if numeric:
+                        return numeric[-1]
+
+            else:
+                numeric = safe_float(value)
+
+                if numeric > 0:
+                    return numeric
+
+        return None
+
+    structural_context["order_block_low"] = latest_candidate(
+        structural_context["order_block_lows"]
+    )
+
+    structural_context["order_block_high"] = latest_candidate(
+        structural_context["order_block_highs"]
+    )
+
+    structural_context["demand_low"] = latest_candidate(
+        structural_context["demand_lows"]
+    )
+
+    structural_context["demand_high"] = latest_candidate(
+        structural_context["demand_highs"]
+    )
+
+    structural_context["supply_low"] = latest_candidate(
+        structural_context["supply_lows"]
+    )
+
+    structural_context["supply_high"] = latest_candidate(
+        structural_context["supply_highs"]
+    )
+
+    return structural_context
+
 def assemble_result(
     market: str,
     market_data: Dict[str, Any],
@@ -1157,6 +1546,14 @@ def assemble_result(
         )
 
     # ---------------------------------------------------------------
+    # STRUCTURAL CONTEXT
+    # ---------------------------------------------------------------
+
+    structural_context = build_structural_context(
+        technical_analysis
+    )
+
+    # ---------------------------------------------------------------
     # EXECUTION SAFETY
     # ---------------------------------------------------------------
 
@@ -1237,6 +1634,9 @@ def assemble_result(
                     "timeframes"
                 )
             ),
+
+        "structural_context":
+            structural_context,
 
         "core_confluence_score":
             core_score,
@@ -1429,17 +1829,17 @@ def analyze_market(
     Flow:
 
         logical market
-            ↓
+            â†“
         symbol_data.get_top_down_data()
-            ↓
+            â†“
         H4/H1/M15 candles
-            ↓
+            â†“
         TechnicalEngine on H4
         TechnicalEngine on H1
         TechnicalEngine on M15
-            ↓
+            â†“
         decision_engine.decide()
-            ↓
+            â†“
         standardized result
     """
 

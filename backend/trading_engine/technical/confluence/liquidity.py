@@ -593,62 +593,138 @@ class Liquidity:
 
         sweeps: List[Dict[str, Any]] = []
 
+        # Index liquidity levels by price so each candle only examines
+        # levels inside its actual sweep interval instead of scanning
+        # every liquidity level.
+        from bisect import bisect_left, bisect_right
+
+        buy_normalized = [
+            (float(level["price"]), level["type"], position)
+            for position, level in enumerate(buy_levels)
+        ]
+
+        sell_normalized = [
+            (float(level["price"]), level["type"], position)
+            for position, level in enumerate(sell_levels)
+        ]
+
+        buy_sorted = sorted(
+            buy_normalized,
+            key=lambda item: item[0],
+        )
+
+        sell_sorted = sorted(
+            sell_normalized,
+            key=lambda item: item[0],
+        )
+
+        buy_prices = [
+            item[0]
+            for item in buy_sorted
+        ]
+
+        sell_prices = [
+            item[0]
+            for item in sell_sorted
+        ]
+
+        append_sweep = sweeps.append
+
         for candle in candles:
 
-            # Buy-side sweep:
-            # High takes liquidity above the level,
-            # but candle closes back below it.
+            candle_index = candle["index"]
+            candle_high = candle["high"]
+            candle_low = candle["low"]
+            candle_close = candle["close"]
 
-            for level in buy_levels:
+            # --------------------------------------------------------
+            # BUY-SIDE SWEEP
+            # Original condition:
+            #     candle_high > price
+            #     candle_close < price
+            #
+            # Therefore:
+            #     candle_close < price < candle_high
+            # --------------------------------------------------------
 
-                price = float(level["price"])
+            buy_start = bisect_right(
+                buy_prices,
+                candle_close,
+            )
 
-                if (
-                    candle["high"] > price
-                    and candle["close"] < price
-                ):
+            buy_end = bisect_left(
+                buy_prices,
+                candle_high,
+            )
 
-                    sweeps.append(
+            if buy_start < buy_end:
+
+                candidates = buy_sorted[buy_start:buy_end]
+
+                # The original implementation scans buy_levels in
+                # their original order. Restore that exact ordering.
+                candidates.sort(
+                    key=lambda item: item[2]
+                )
+
+                for price, liquidity_type, _ in candidates:
+
+                    append_sweep(
                         {
-                            "index": candle["index"],
-                            "price": candle["close"],
+                            "index": candle_index,
+                            "price": candle_close,
                             "liquidity_level": price,
-                            "liquidity_type": level["type"],
+                            "liquidity_type": liquidity_type,
                             "side": "buy_side",
                             "direction": "SELL",
                             "type": "LIQUIDITY_SWEEP",
                         }
                     )
 
-            # Sell-side sweep:
-            # Low takes liquidity below the level,
-            # but candle closes back above it.
+            # --------------------------------------------------------
+            # SELL-SIDE SWEEP
+            # Original condition:
+            #     candle_low < price
+            #     candle_close > price
+            #
+            # Therefore:
+            #     candle_low < price < candle_close
+            # --------------------------------------------------------
 
-            for level in sell_levels:
+            sell_start = bisect_right(
+                sell_prices,
+                candle_low,
+            )
 
-                price = float(level["price"])
+            sell_end = bisect_left(
+                sell_prices,
+                candle_close,
+            )
 
-                if (
-                    candle["low"] < price
-                    and candle["close"] > price
-                ):
+            if sell_start < sell_end:
 
-                    sweeps.append(
+                candidates = sell_sorted[sell_start:sell_end]
+
+                # Restore the original sell_levels ordering.
+                candidates.sort(
+                    key=lambda item: item[2]
+                )
+
+                for price, liquidity_type, _ in candidates:
+
+                    append_sweep(
                         {
-                            "index": candle["index"],
-                            "price": candle["close"],
+                            "index": candle_index,
+                            "price": candle_close,
                             "liquidity_level": price,
-                            "liquidity_type": level["type"],
+                            "liquidity_type": liquidity_type,
                             "side": "sell_side",
                             "direction": "BUY",
                             "type": "LIQUIDITY_SWEEP",
                         }
                     )
 
-        sweeps.sort(
-            key=lambda item: item["index"]
-        )
-
+        # Preserve the original final ordering.
         return sweeps
 
     # ============================================================

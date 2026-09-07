@@ -92,9 +92,10 @@ SUPPORTED_TIMEFRAMES = (
 # ----------------------------------------------------------------------
 # RR POLICY
 # ----------------------------------------------------------------------
-
 MIN_RR = 1.0
-MAX_RR = 3.0
+
+# 3R is a quality benchmark, not a maximum TP ceiling.
+BENCHMARK_RR = 3.0
 
 PREFERRED_RR_LEVELS = (
     1.0,
@@ -102,6 +103,10 @@ PREFERRED_RR_LEVELS = (
     2.0,
     2.5,
     3.0,
+    4.0,
+    5.0,
+    6.0,
+    8.0,
 )
 
 # ----------------------------------------------------------------------
@@ -182,7 +187,7 @@ def _extract_target_value(value: Any) -> Optional[float]:
 
     direct = _safe_float(value)
 
-    if direct is not None:
+    if direct is not None and _valid_price(direct):
         return direct
 
     if isinstance(value, dict):
@@ -197,7 +202,7 @@ def _extract_target_value(value: Any) -> Optional[float]:
         ):
             candidate = _safe_float(value.get(key))
 
-            if candidate is not None:
+            if _valid_price(candidate):
                 return candidate
 
     return None
@@ -231,7 +236,7 @@ def take_profit_info() -> Dict[str, Any]:
             "structural_target_selection",
         ],
 
-        "maximum_rr": MAX_RR,
+        "maximum_rr": BENCHMARK_RR,
         "minimum_rr": MIN_RR,
 
         "preferred_rr_levels": list(PREFERRED_RR_LEVELS),
@@ -543,14 +548,20 @@ def calculate_rr(
 # ======================================================================
 # MAXIMUM RR TARGET
 # ======================================================================
-
 def calculate_maximum_target(
     signal: str,
     entry: Any,
     stop_loss: Any,
 ) -> Dict[str, Any]:
     """
-    Calculate the absolute maximum TP permitted by the 1:3 policy.
+    Calculate the 3R benchmark target.
+
+    This function is retained for compatibility with existing callers.
+
+    IMPORTANT:
+        3R is a benchmark, not a maximum permitted reward.
+
+    Structural targets beyond the benchmark remain valid.
     """
 
     risk_result = calculate_risk_distance(
@@ -565,15 +576,12 @@ def calculate_maximum_target(
     entry_price = risk_result["entry"]
     risk_distance = risk_result["risk_distance"]
 
-    maximum_reward = risk_distance * MAX_RR
+    benchmark_reward = risk_distance * BENCHMARK_RR
 
     if _normalize_signal(signal) == "BUY":
-
-        maximum_target = entry_price + maximum_reward
-
+        benchmark_target = entry_price + benchmark_reward
     else:
-
-        maximum_target = entry_price - maximum_reward
+        benchmark_target = entry_price - benchmark_reward
 
     return {
         "status": "READY",
@@ -582,151 +590,14 @@ def calculate_maximum_target(
         "entry": entry_price,
         "stop_loss": risk_result["stop_loss"],
         "risk_distance": risk_distance,
-        "maximum_rr": MAX_RR,
-        "maximum_reward": maximum_reward,
-        "maximum_take_profit": maximum_target,
-    }
+        "benchmark_rr": BENCHMARK_RR,
+        "benchmark_reward": benchmark_reward,
+        "benchmark_take_profit": benchmark_target,
 
-
-# ======================================================================
-# STRUCTURAL TARGET SELECTION
-# ======================================================================
-
-def select_structural_target(
-    signal: str,
-    entry: Any,
-    stop_loss: Any,
-    context: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    """
-    Select the nearest valid structural target.
-
-    The target is never allowed to exceed 3R.
-
-    If several valid targets exist, the nearest valid target
-    is preferred because it represents the first meaningful
-    opposing liquidity/structure area.
-    """
-
-    signal = _normalize_signal(signal)
-
-    risk_result = calculate_risk_distance(
-        signal=signal,
-        entry=entry,
-        stop_loss=stop_loss,
-    )
-
-    if not risk_result["valid"]:
-        return risk_result
-
-    entry_price = risk_result["entry"]
-    risk_distance = risk_result["risk_distance"]
-
-    maximum_result = calculate_maximum_target(
-        signal=signal,
-        entry=entry_price,
-        stop_loss=risk_result["stop_loss"],
-    )
-
-    maximum_target = maximum_result["maximum_take_profit"]
-
-    all_targets = _collect_structural_targets(
-        signal=signal,
-        context=context,
-    )
-
-    valid_targets = _filter_directional_targets(
-        signal=signal,
-        entry=entry_price,
-        targets=all_targets,
-    )
-
-    # --------------------------------------------------------------
-    # Restrict targets to maximum 3R.
-    # --------------------------------------------------------------
-
-    capped_targets = []
-
-    for target in valid_targets:
-
-        target_price = target["price"]
-
-        if signal == "BUY":
-
-            if target_price <= maximum_target:
-                capped_targets.append(target)
-
-        else:
-
-            if target_price >= maximum_target:
-                capped_targets.append(target)
-
-    # --------------------------------------------------------------
-    # No structural target.
-    # --------------------------------------------------------------
-
-    if not capped_targets:
-
-        return {
-            "status": "BLOCKED",
-            "valid": False,
-            "reason": (
-                "no valid structural target exists within "
-                f"maximum {MAX_RR}R"
-            ),
-            "signal": signal,
-            "entry": entry_price,
-            "stop_loss": risk_result["stop_loss"],
-            "risk_distance": risk_distance,
-            "maximum_rr": MAX_RR,
-            "maximum_take_profit": maximum_target,
-            "structural_target_found": False,
-        }
-
-    # --------------------------------------------------------------
-    # Nearest target.
-    # --------------------------------------------------------------
-
-    if signal == "BUY":
-
-        selected = min(
-            capped_targets,
-            key=lambda item: item["price"],
-        )
-
-    else:
-
-        selected = max(
-            capped_targets,
-            key=lambda item: item["price"],
-        )
-
-    target_price = selected["price"]
-
-    rr_result = calculate_rr(
-        signal=signal,
-        entry=entry_price,
-        stop_loss=risk_result["stop_loss"],
-        take_profit=target_price,
-    )
-
-    if not rr_result["valid"]:
-        return rr_result
-
-    return {
-        "status": "READY",
-        "valid": True,
-        "signal": signal,
-        "entry": entry_price,
-        "stop_loss": risk_result["stop_loss"],
-        "take_profit": target_price,
-        "risk_distance": risk_distance,
-        "reward_distance": rr_result["reward_distance"],
-        "rr": rr_result["rr"],
-        "source": selected["source"],
-        "structural_target_found": True,
-        "maximum_rr": MAX_RR,
-        "maximum_take_profit": maximum_target,
+        # Compatibility fields.
+        "maximum_rr": BENCHMARK_RR,
+        "maximum_reward": benchmark_reward,
+        "maximum_take_profit": benchmark_target,
     }
 
 
@@ -780,24 +651,12 @@ def validate_take_profit(
     # Maximum RR
     # --------------------------------------------------------------
 
-    if rr > MAX_RR:
-
-        return {
-            **rr_result,
-            "status": "BLOCKED",
-            "valid": False,
-            "reason": (
-                f"take_profit exceeds maximum {MAX_RR:.2f}R"
-            ),
-            "maximum_rr": MAX_RR,
-            "risk_authorized": False,
-        }
 
     return {
         **rr_result,
         "status": "READY",
         "valid": True,
-        "maximum_rr": MAX_RR,
+        "benchmark_rr": BENCHMARK_RR,
         "risk_authorized": True,
     }
 
@@ -820,11 +679,12 @@ def calculate_take_profit(
 
         1. Validate BUY/SELL.
         2. Calculate structural risk distance.
-        3. Identify structural targets.
-        4. Reject targets beyond 3R.
-        5. Prefer a target compatible with preferred RR.
-        6. Otherwise use the nearest valid structural target.
-        7. Never invent a target without structure.
+        3. Identify opposing structural targets.
+        4. Calculate RR for every valid structural target.
+        5. Respect preferred RR when supplied without capping it.
+        6. Otherwise select the nearest meaningful structural target.
+        7. Treat 3R as a benchmark, never as a maximum.
+        8. Never invent a target without structure.
     """
 
     signal = _normalize_signal(signal)
@@ -855,13 +715,28 @@ def calculate_take_profit(
     stop_price = risk_result["stop_loss"]
     risk_distance = risk_result["risk_distance"]
 
-    maximum_result = calculate_maximum_target(
+    # --------------------------------------------------------------
+    # 3R BENCHMARK ? NOT A MAXIMUM
+    # --------------------------------------------------------------
+    #
+    # calculate_maximum_target() is retained for compatibility and
+    # benchmark reporting only. It must NEVER cap a structural TP.
+    #
+    # A valid structural objective may produce 4R, 5R, 6R, 8R, etc.
+    # and must remain available to the TP engine.
+    # --------------------------------------------------------------
+
+    benchmark_result = calculate_maximum_target(
         signal=signal,
         entry=entry_price,
         stop_loss=stop_price,
     )
 
-    maximum_target = maximum_result["maximum_take_profit"]
+    benchmark_target = benchmark_result["maximum_take_profit"]
+
+    # --------------------------------------------------------------
+    # COLLECT OPPOSING STRUCTURAL OBJECTIVES
+    # --------------------------------------------------------------
 
     targets = _collect_structural_targets(
         signal=signal,
@@ -875,7 +750,12 @@ def calculate_take_profit(
     )
 
     # --------------------------------------------------------------
-    # Keep only targets <= 3R.
+    # CALCULATE RR FOR EVERY STRUCTURAL OBJECTIVE
+    # --------------------------------------------------------------
+    #
+    # IMPORTANT:
+    # There is deliberately NO maximum-RR filter here.
+    # 3R is a benchmark, not a ceiling.
     # --------------------------------------------------------------
 
     targets_with_rr = []
@@ -885,17 +765,8 @@ def calculate_take_profit(
         target_price = target["price"]
 
         if signal == "BUY":
-
-            if target_price > maximum_target:
-                continue
-
             reward = target_price - entry_price
-
         else:
-
-            if target_price < maximum_target:
-                continue
-
             reward = entry_price - target_price
 
         if reward <= 0:
@@ -908,11 +779,14 @@ def calculate_take_profit(
 
         targets_with_rr.append({
             **target,
+            "reward": reward,
             "rr": rr,
+            "benchmark_rr": BENCHMARK_RR,
+            "above_benchmark": rr > BENCHMARK_RR,
         })
 
     # --------------------------------------------------------------
-    # No valid target.
+    # NO VALID STRUCTURAL TARGET
     # --------------------------------------------------------------
 
     if not targets_with_rr:
@@ -922,20 +796,28 @@ def calculate_take_profit(
             "valid": False,
             "reason": (
                 "no valid structural take-profit target "
-                f"between {MIN_RR:.1f}R and {MAX_RR:.1f}R"
+                f"at or above {MIN_RR:.1f}R"
             ),
             "signal": signal,
             "entry": entry_price,
             "stop_loss": stop_price,
             "risk_distance": risk_distance,
-            "maximum_rr": MAX_RR,
-            "maximum_take_profit": maximum_target,
+            "benchmark_rr": BENCHMARK_RR,
+            "benchmark_take_profit": benchmark_target,
             "structural_target_found": False,
             "risk_authorized": False,
         }
 
     # --------------------------------------------------------------
-    # Preferred RR.
+    # PREFERRED RR
+    # --------------------------------------------------------------
+    #
+    # User-controlled mode may request 3R, 4R, 5R, 6R, 8R, etc.
+    #
+    # The requested RR is NEVER silently capped at 3R.
+    #
+    # We still select an ACTUAL structural target. We never invent
+    # a TP merely to hit a requested RR.
     # --------------------------------------------------------------
 
     desired_rr = _safe_float(preferred_rr)
@@ -944,32 +826,36 @@ def calculate_take_profit(
 
         desired_rr = max(
             MIN_RR,
-            min(MAX_RR, desired_rr),
+            desired_rr,
         )
 
-        # Select the closest structural target to preferred RR.
         selected = min(
             targets_with_rr,
             key=lambda item: (
                 abs(item["rr"] - desired_rr),
-                item["priority"],
+                item.get("timeframe_priority", 3),
+                item.get("priority", 20),
             ),
         )
 
     else:
 
         # ----------------------------------------------------------
-        # Intelligent default:
+        # AUTOMATED / DEFAULT TARGET SELECTION
+        # ----------------------------------------------------------
         #
-        # Select the strongest structural target closest to 3R
-        # without exceeding 3R.
+        # Select the nearest valid opposing structural objective.
+        #
+        # The resulting RR is reported as-is. It may be below,
+        # equal to, or above the 3R benchmark.
         # ----------------------------------------------------------
 
-        selected = max(
+        selected = min(
             targets_with_rr,
             key=lambda item: (
-                item["rr"],
-                -item["priority"],
+                abs(item["price"] - entry_price),
+                item.get("timeframe_priority", 3),
+                item.get("priority", 20),
             ),
         )
 
@@ -1015,9 +901,9 @@ def calculate_take_profit(
         "preferred_rr": desired_rr,
 
         "minimum_rr": MIN_RR,
-        "maximum_rr": MAX_RR,
+        "benchmark_rr": BENCHMARK_RR,
 
-        "maximum_take_profit": maximum_target,
+        "benchmark_take_profit": benchmark_target,
 
         "risk_authorized": True,
 

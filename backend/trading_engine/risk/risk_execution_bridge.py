@@ -1,4 +1,4 @@
-"""
+﻿"""
 BALLY FLOW - Risk Execution Bridge
 
 RISK -> EXECUTION AUTHORIZATION BOUNDARY
@@ -90,7 +90,7 @@ SUPPORTED_SIGNALS = (
 )
 
 MINIMUM_RR = 1.0
-MAXIMUM_RR = 3.0
+BENCHMARK_RR = 3.0
 
 
 # ======================================================================
@@ -169,7 +169,7 @@ def risk_execution_bridge_info() -> Dict[str, Any]:
         ],
 
         "minimum_rr": MINIMUM_RR,
-        "maximum_rr": MAXIMUM_RR,
+        "benchmark_rr": BENCHMARK_RR,
 
         "decision_generation": False,
         "decision_override": False,
@@ -194,7 +194,7 @@ def risk_execution_bridge_info() -> Dict[str, Any]:
         "mt5_order_send": False,
 
         "preferred_lot_hard": False,
-        "maximum_rr_enforced": True,
+        "minimum_rr_enforced": True,
 
         "risk_authority": "risk_manager.py",
         "bridge_authority": "this_module",
@@ -306,7 +306,10 @@ def validate_risk_reward(
     """
     Validate the risk/reward relationship.
 
-    Maximum RR is strictly 1:3.
+    Minimum RR is 1:1.
+
+    3R is a benchmark only and is not a maximum ceiling.
+    Structural targets above 3R are permitted.
 
     This is a boundary validation only. The risk manager remains
     responsible for calculating the official TP.
@@ -374,19 +377,9 @@ def validate_risk_reward(
             "status": "BLOCKED",
             "valid": False,
             "rr": rr,
-            "maximum_rr": MAXIMUM_RR,
+            "benchmark_rr": BENCHMARK_RR,
             "minimum_rr": MINIMUM_RR,
             "reason": "risk reward is below minimum allowed",
-        }
-
-    if rr > MAXIMUM_RR:
-
-        return {
-            "status": "BLOCKED",
-            "valid": False,
-            "rr": rr,
-            "maximum_rr": MAXIMUM_RR,
-            "reason": "risk reward exceeds maximum 3:1",
         }
 
     return {
@@ -396,8 +389,9 @@ def validate_risk_reward(
         "reward_distance": reward_distance,
         "rr": rr,
         "risk_reward": f"1:{rr:.2f}",
-        "maximum_rr": MAXIMUM_RR,
-        "reason": "risk reward is within allowed range",
+        "benchmark_rr": BENCHMARK_RR,
+        "above_benchmark": rr > BENCHMARK_RR,
+        "reason": "risk reward meets minimum requirement",
     }
 
 
@@ -717,13 +711,13 @@ def authorize_for_execution(
     The result can be passed downstream to:
 
         position_check.py
-            ↓
+            â†“
         final_gate.py
-            ↓
+            â†“
         order_builder.py
-            ↓
+            â†“
         executor.py
-            ↓
+            â†“
         live_executor.py
 
     This function never sends an MT5 order.

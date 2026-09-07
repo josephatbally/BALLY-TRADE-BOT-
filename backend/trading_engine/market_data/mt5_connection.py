@@ -399,6 +399,70 @@ class MT5Connection:
             ),
         }
 
+    def positions(
+        self,
+        *,
+        symbol: Optional[str] = None,
+    ) -> List[Any]:
+        """
+        Return currently open MT5 positions.
+
+        This is a read-only market/account data operation.
+
+        It does not:
+        - validate execution conditions
+        - reject positions
+        - calculate risk
+        - modify positions
+        - place orders
+
+        When a logical BALLY FLOW market is supplied, it is resolved
+        to the broker's actual MT5 symbol before querying positions.
+        """
+
+        if not self.is_connected():
+            raise RuntimeError(
+                "MT5 terminal is not connected"
+            )
+
+        actual_symbol: Optional[str] = None
+
+        if symbol is not None:
+            logical = self._clean_logical_symbol(symbol)
+
+            actual_symbol = self.resolve_symbol(
+                logical
+            )
+
+            if actual_symbol is None:
+                raise ValueError(
+                    f"Unable to resolve broker symbol "
+                    f"for logical market: {logical}"
+                )
+
+        try:
+            if actual_symbol is not None:
+                result = mt5.positions_get(
+                    symbol=actual_symbol
+                )
+            else:
+                result = mt5.positions_get()
+
+        except Exception as exc:
+            raise RuntimeError(
+                "Unable to retrieve MT5 open positions"
+            ) from exc
+
+        if result is None:
+            error = mt5.last_error()
+
+            raise RuntimeError(
+                "MT5 positions_get returned no data: "
+                f"{error}"
+            )
+
+        return list(result)
+
     def terminal_info(self) -> Any:
 
         if not self.is_connected():
@@ -1503,6 +1567,29 @@ def shutdown_mt5() -> None:
 
     _connection.shutdown()
 
+def get_account_info() -> Any:
+    """
+    Return the current MT5 trading account information.
+
+    This delegates to the shared MT5 connection.
+    It does not calculate or modify trading data.
+    """
+    return _connection.account_info()
+
+def get_positions(
+    *,
+    symbol: Optional[str] = None,
+) -> List[Any]:
+    """
+    Return currently open MT5 positions.
+
+    This delegates to the shared MT5 connection and performs
+    no trading operation.
+    """
+
+    return _connection.positions(
+        symbol=symbol
+    )
 
 __all__ = [
     "LOGICAL_MARKETS",
@@ -1512,6 +1599,8 @@ __all__ = [
     "initialize_mt5",
     "is_mt5_connected",
     "mt5_status",
+    "get_account_info",
+    "get_positions",
     "resolve_symbol",
     "ensure_symbol",
     "get_symbol_info",

@@ -1,4 +1,4 @@
-
+﻿
 """
 BALLY FLOW - Intelligent Risk Manager
 
@@ -151,7 +151,7 @@ HARD_MAX_RISK_PERCENT = 2.0
 # ======================================================================
 
 MIN_RR = 1.0
-MAX_RR = 3.0
+BENCHMARK_RR = 3.0
 
 RR_TOLERANCE = 1e-9
 
@@ -306,7 +306,7 @@ def risk_manager_info() -> Dict[str, Any]:
             "coordinate_structural_stop_loss",
             "coordinate_structural_take_profit",
             "enforce_minimum_rr",
-            "enforce_maximum_rr",
+            "benchmark_rr",
             "coordinate_intelligent_position_sizing",
             "coordinate_margin_verification",
             "apply_progressive_risk_reduction",
@@ -319,7 +319,7 @@ def risk_manager_info() -> Dict[str, Any]:
         "hard_max_risk_percent": HARD_MAX_RISK_PERCENT,
 
         "minimum_rr": MIN_RR,
-        "maximum_rr": MAX_RR,
+        "benchmark_rr": BENCHMARK_RR,
 
         "default_margin_safety_buffer_percent":
             DEFAULT_MARGIN_SAFETY_BUFFER_PERCENT,
@@ -614,7 +614,9 @@ def validate_risk_reward(
 
     RR must satisfy:
 
-        1R <= RR <= 3R
+        RR >= 1R
+
+    3R is a benchmark only and is not a maximum.
     """
 
     decision = _normalize_signal(signal)
@@ -740,40 +742,10 @@ def validate_risk_reward(
             "rr": round(rr, 6),
 
             "minimum_rr": MIN_RR,
-            "maximum_rr": MAX_RR,
+            "benchmark_rr": BENCHMARK_RR,
 
             "reason":
                 f"risk reward below minimum {MIN_RR}:1",
-        }
-
-
-    # ==================================================================
-    # MAXIMUM RR
-    # ==================================================================
-
-    if rr > MAX_RR + RR_TOLERANCE:
-
-        return {
-            "status": "BLOCKED",
-            "valid": False,
-            "risk_authorized": False,
-
-            "signal": decision,
-
-            "entry": entry_price,
-            "stop_loss": stop,
-            "take_profit": target,
-
-            "risk_distance": risk_distance,
-            "reward_distance": reward_distance,
-
-            "rr": round(rr, 6),
-
-            "minimum_rr": MIN_RR,
-            "maximum_rr": MAX_RR,
-
-            "reason":
-                f"risk reward exceeds maximum {MAX_RR}:1",
         }
 
 
@@ -801,7 +773,7 @@ def validate_risk_reward(
             f"1:{round(rr, 2)}",
 
         "minimum_rr": MIN_RR,
-        "maximum_rr": MAX_RR,
+        "benchmark_rr": BENCHMARK_RR,
     }
 
 
@@ -1811,8 +1783,6 @@ def evaluate_risk(
                 and rr_result.get("rr") is not None
                 and rr_result["rr"]
                     >= MIN_RR - RR_TOLERANCE
-                and rr_result["rr"]
-                    <= MAX_RR + RR_TOLERANCE
             ),
 
         "position_size_valid":
@@ -1901,8 +1871,8 @@ def evaluate_risk(
         "minimum_rr":
             MIN_RR,
 
-        "maximum_rr":
-            MAX_RR,
+        "benchmark_rr":
+            BENCHMARK_RR,
 
         "preferred_lot":
             preferred_lot,
@@ -2091,9 +2061,9 @@ if __name__ == "__main__":
     print(rr)
 
     print()
-    print("RR ABOVE MAXIMUM TEST:")
+    print("RR ABOVE BENCHMARK TEST:")
 
-    rr_max = validate_risk_reward(
+    rr_above_benchmark = validate_risk_reward(
         signal="BUY",
         entry=4700.0,
         stop_loss=4680.0,
@@ -2169,3 +2139,6 @@ if __name__ == "__main__":
     print("==============================================")
     print("RISK MANAGER SELF-TEST COMPLETE")
     print("==============================================")
+
+
+
