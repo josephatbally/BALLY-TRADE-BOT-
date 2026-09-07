@@ -94,6 +94,23 @@ from backend.trading_engine.modes.mode_controller import (
     TradingMode,
 )
 
+from backend.trading_engine.market_data.mt5_connection import (
+    initialize_mt5,
+    is_mt5_connected,
+)
+
+from backend.trading_engine.engine import (
+    analyze_live_market,
+    analyze_markets,
+)
+
+from backend.trading_engine.hybrid.hybrid_engine import (
+    analyze_hybrid_market,
+)
+
+from backend.trading_engine.execution.execution_pipeline import (
+    execute_pipeline,
+)
 
 # =====================================================================
 # APPLICATION VERSION
@@ -195,7 +212,12 @@ class BallyFlowApplication:
 
         Starting the application does not automatically execute
         trades.
+
+        MT5 is initialized through the shared MT5 connection.
         """
+
+        if not is_mt5_connected():
+            initialize_mt5()
 
         self._running = True
 

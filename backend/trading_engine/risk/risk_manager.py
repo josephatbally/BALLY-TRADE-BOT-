@@ -145,13 +145,15 @@ DEFAULT_RISK_PERCENT = 1.0
 MINIMUM_RISK_PERCENT = 0.1
 HARD_MAX_RISK_PERCENT = 2.0
 
-
 # ======================================================================
 # RISK / REWARD POLICY
 # ======================================================================
 
 MIN_RR = 1.0
 MAX_RR = 3.0
+
+# 3R is a benchmark, not a maximum.
+BENCHMARK_RR = 3.0
 
 RR_TOLERANCE = 1e-9
 
@@ -740,42 +742,14 @@ def validate_risk_reward(
             "rr": round(rr, 6),
 
             "minimum_rr": MIN_RR,
-            "maximum_rr": MAX_RR,
+            "benchmark_rr": BENCHMARK_RR,
 
             "reason":
                 f"risk reward below minimum {MIN_RR}:1",
         }
 
 
-    # ==================================================================
-    # MAXIMUM RR
-    # ==================================================================
-
-    if rr > MAX_RR + RR_TOLERANCE:
-
-        return {
-            "status": "BLOCKED",
-            "valid": False,
-            "risk_authorized": False,
-
-            "signal": decision,
-
-            "entry": entry_price,
-            "stop_loss": stop,
-            "take_profit": target,
-
-            "risk_distance": risk_distance,
-            "reward_distance": reward_distance,
-
-            "rr": round(rr, 6),
-
-            "minimum_rr": MIN_RR,
-            "maximum_rr": MAX_RR,
-
-            "reason":
-                f"risk reward exceeds maximum {MAX_RR}:1",
-        }
-
+    
 
     # ==================================================================
     # AUTHORIZED
@@ -801,7 +775,7 @@ def validate_risk_reward(
             f"1:{round(rr, 2)}",
 
         "minimum_rr": MIN_RR,
-        "maximum_rr": MAX_RR,
+        "benchmark_rr": BENCHMARK_RR,
     }
 
 
