@@ -1575,6 +1575,7 @@ def get_account_info() -> Any:
     It does not calculate or modify trading data.
     """
     return _connection.account_info()
+<<<<<<< HEAD
 
 def get_positions(
     *,
@@ -1590,6 +1591,8 @@ def get_positions(
     return _connection.positions(
         symbol=symbol
     )
+=======
+>>>>>>> origin/main
 
 __all__ = [
     "LOGICAL_MARKETS",
@@ -1600,7 +1603,10 @@ __all__ = [
     "is_mt5_connected",
     "mt5_status",
     "get_account_info",
+<<<<<<< HEAD
     "get_positions",
+=======
+>>>>>>> origin/main
     "resolve_symbol",
     "ensure_symbol",
     "get_symbol_info",

@@ -91,6 +91,10 @@ SUPPORTED_SIGNALS = (
 
 MINIMUM_RR = 1.0
 BENCHMARK_RR = 3.0
+<<<<<<< HEAD
+=======
+MAXIMUM_RR = BENCHMARK_RR
+>>>>>>> origin/main
 
 
 # ======================================================================
@@ -194,7 +198,11 @@ def risk_execution_bridge_info() -> Dict[str, Any]:
         "mt5_order_send": False,
 
         "preferred_lot_hard": False,
+<<<<<<< HEAD
         "minimum_rr_enforced": True,
+=======
+        "benchmark_rr_enforced": True,
+>>>>>>> origin/main
 
         "risk_authority": "risk_manager.py",
         "bridge_authority": "this_module",

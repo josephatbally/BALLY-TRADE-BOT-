@@ -135,6 +135,23 @@ from backend.trading_engine.execution.execution_pipeline import (
     execute_pipeline,
 )
 
+from backend.trading_engine.market_data.mt5_connection import (
+    initialize_mt5,
+    is_mt5_connected,
+)
+
+from backend.trading_engine.engine import (
+    analyze_live_market,
+    analyze_markets,
+)
+
+from backend.trading_engine.hybrid.hybrid_engine import (
+    analyze_hybrid_market,
+)
+
+from backend.trading_engine.execution.execution_pipeline import (
+    execute_pipeline,
+)
 
 # =====================================================================
 # APPLICATION VERSION

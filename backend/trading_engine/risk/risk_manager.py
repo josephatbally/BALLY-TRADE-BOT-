@@ -145,12 +145,14 @@ DEFAULT_RISK_PERCENT = 1.0
 MINIMUM_RISK_PERCENT = 0.1
 HARD_MAX_RISK_PERCENT = 2.0
 
-
 # ======================================================================
 # RISK / REWARD POLICY
 # ======================================================================
 
 MIN_RR = 1.0
+BENCHMARK_RR = 3.0
+
+# 3R is a benchmark, not a maximum.
 BENCHMARK_RR = 3.0
 
 RR_TOLERANCE = 1e-9
@@ -749,6 +751,11 @@ def validate_risk_reward(
         }
 
 
+<<<<<<< HEAD
+=======
+    
+
+>>>>>>> origin/main
     # ==================================================================
     # AUTHORIZED
     # ==================================================================
