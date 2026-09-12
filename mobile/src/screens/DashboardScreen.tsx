@@ -15,11 +15,20 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {MainTabParamList} from '../navigation/MainTabNavigator';
 import {BRANDING} from '../config/branding';
 import {
-  getApplicationMode,
   getApplicationStatus,
   getHealth,
   updateApplicationMode,
 } from '../api/appApi';
+import {AccountResponse} from '../api/accountApi';
+import * as accountApiModule from '../api/accountApi';
+import {getOpenPositions, PositionsResponse} from '../api/positionsApi';
+
+const getAccount =
+  (accountApiModule as any).getAccount ??
+  (accountApiModule as any).getAccountData ??
+  (accountApiModule as any).fetchAccountData ??
+  (accountApiModule as any).getAccountSummary ??
+  (accountApiModule as any).getAccounts;
 
 type DashboardScreenProps = BottomTabScreenProps<
   MainTabParamList,
@@ -83,7 +92,7 @@ const MARKETS: Market[] = [
   {
     symbol: 'XAGUSD',
     direction: 'NEUTRAL',
-    change: '0.00%',
+    change: '0.01%',
     price: '—',
     points: [49, 51, 50, 52, 49, 51, 50, 51, 49, 50],
   },
@@ -221,10 +230,10 @@ function DirectionBadge({
 }) {
   const label =
     direction === 'BULLISH'
-      ? '▲ BULLISH'
+      ? '? BULLISH'
       : direction === 'BEARISH'
-      ? '▼ BEARISH'
-      : '• NEUTRAL';
+      ? '? BEARISH'
+      : '� NEUTRAL';
 
   return (
     <View
@@ -266,6 +275,20 @@ export default function DashboardScreen({
 
   const [tradingMode, setTradingMode] =
     React.useState<TradingMode>('TECHNICAL');
+
+  /*
+   * ============================================================
+   * LIVE BROKER ACCOUNT DATA
+   * ============================================================
+   *
+   * These values come directly from the BALLY FLOW backend.
+   */
+  const [accountData, setAccountData] =
+    React.useState<AccountResponse | null>(null);
+
+  const [positionsData, setPositionsData] =
+    React.useState<PositionsResponse | null>(null);
+
 
   /*
    * ============================================================
@@ -324,6 +347,41 @@ export default function DashboardScreen({
           health?.status === 'ONLINE';
 
         setIsApiLive(healthOnline);
+        /*
+         * Retrieve live broker account and open-position data.
+         *
+         * These endpoints are independent of application RUNNING/STOPPED
+         * state, so account data can remain visible whenever the backend
+         * and MT5 connection are available.
+         */
+        if (healthOnline) {
+          try {
+            const account = await getAccount();
+
+            if (mountedRef.current) {
+              setAccountData(account);
+            }
+          } catch {
+            if (mountedRef.current) {
+              setAccountData(null);
+            }
+          }
+
+          try {
+            const positions = await getOpenPositions();
+
+            if (mountedRef.current) {
+              setPositionsData(positions);
+            }
+          } catch {
+            if (mountedRef.current) {
+              setPositionsData(null);
+            }
+          }
+        } else {
+          setAccountData(null);
+          setPositionsData(null);
+        }
 
         /*
          * If the API is reachable, retrieve the actual
@@ -550,6 +608,7 @@ export default function DashboardScreen({
   };
 
   const openHistory = () => {
+    // History is not part of MainTabParamList; use the existing trades screen.
     navigation.navigate('Trades', user);
   };
 
@@ -645,7 +704,7 @@ export default function DashboardScreen({
         </View>
 
         {/* ================================================== */}
-        {/* PORTFOLIO — TOP */}
+        {/* PORTFOLIO TOP */}
         {/* ================================================== */}
 
         <View style={styles.sectionHeader}>
@@ -659,7 +718,7 @@ export default function DashboardScreen({
               !isApiLive && styles.offlineMeta,
             ]}>
             {isApiLive
-              ? 'API CONNECTED'
+              ? 'CONNECTED'
               : 'OFFLINE'}
           </Text>
         </View>
@@ -671,12 +730,14 @@ export default function DashboardScreen({
             </Text>
 
             <Text style={styles.balanceValue}>
-              —
+              {accountData
+                ? `${accountData.currency} ${accountData.balance.toFixed(2)}`
+                : '�'}
             </Text>
 
             <Text style={styles.accountStatus}>
               {isApiLive
-                ? 'Broker account data not connected'
+                ? 'MT5 broker account � LIVE'
                 : 'Backend data unavailable'}
             </Text>
           </View>
@@ -690,8 +751,10 @@ export default function DashboardScreen({
               </Text>
 
               <Text style={styles.portfolioValue}>
-                —
-              </Text>
+        {accountData
+          ? `${accountData.currency} ${accountData.profit.toFixed(2)}`
+          : '�'}
+      </Text>
             </View>
 
             <View style={styles.portfolioMetric}>
@@ -700,8 +763,10 @@ export default function DashboardScreen({
               </Text>
 
               <Text style={styles.portfolioValue}>
-                —
-              </Text>
+        {accountData
+          ? `${accountData.currency} ${accountData.equity.toFixed(2)}`
+          : '�'}
+      </Text>
             </View>
 
             <View style={styles.portfolioMetric}>
@@ -710,8 +775,10 @@ export default function DashboardScreen({
               </Text>
 
               <Text style={styles.portfolioValue}>
-                —
-              </Text>
+        {accountData
+          ? `${accountData.currency} ${accountData.margin.toFixed(2)}`
+          : '�'}
+      </Text>
             </View>
 
             <View style={styles.portfolioMetric}>
@@ -720,8 +787,10 @@ export default function DashboardScreen({
               </Text>
 
               <Text style={styles.portfolioValue}>
-                —
-              </Text>
+        {positionsData
+          ? positionsData.count.toString()
+          : '�'}
+      </Text>
             </View>
           </View>
         </View>
@@ -989,7 +1058,7 @@ export default function DashboardScreen({
 
           <Pressable onPress={openLiveSignals}>
             <Text style={styles.viewAll}>
-              VIEW ALL →
+              VIEW ALL ?
             </Text>
           </Pressable>
         </View>
@@ -1041,12 +1110,12 @@ export default function DashboardScreen({
                   ? 'Waiting for BALLY FLOW backend'
                   : applicationRunning
                   ? 'Backend application is running'
-                  : 'Backend connected — scanner not running'}
+                  : 'Backend connected � scanner not running'}
               </Text>
             </View>
 
             <Text style={styles.signalArrow}>
-              →
+              ?
             </Text>
           </View>
 
@@ -1064,16 +1133,10 @@ export default function DashboardScreen({
         {/* ================================================== */}
         {/* MARKET OVERVIEW */}
         {/* ================================================== */}
-
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>
-            MARKET OVERVIEW
-          </Text>
-
+ <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>MARKET OVERVIEW</Text>
           <Pressable onPress={openMarkets}>
-            <Text style={styles.viewAll}>
-              ALL MARKETS →
-            </Text>
+            <Text style={styles.viewAll}>ALL MARKETS →</Text>
           </Pressable>
         </View>
 
@@ -1081,12 +1144,9 @@ export default function DashboardScreen({
           <View
             style={[
               styles.noticeDot,
-              isApiLive
-                ? styles.noticeDotLive
-                : styles.noticeDotOffline,
+              isApiLive ? styles.noticeDotLive : styles.noticeDotOffline,
             ]}
           />
-
           <Text style={styles.marketDataNoticeText}>
             {isApiLive
               ? 'BACKEND CONNECTED — MARKET FEED PENDING'
@@ -1103,23 +1163,13 @@ export default function DashboardScreen({
               pressed && styles.quickCardPressed,
             ]}>
             <View style={styles.marketInfo}>
-              <Text style={styles.marketSymbol}>
-                {market.symbol}
-              </Text>
-
-              <DirectionBadge
-                direction={market.direction}
-              />
-
+              <Text style={styles.marketSymbol}>{market.symbol}</Text>
+              <DirectionBadge direction={market.direction} />
               <Text
                 style={[
                   styles.marketChange,
-                  market.direction ===
-                    'BULLISH' &&
-                    styles.bullishText,
-                  market.direction ===
-                    'BEARISH' &&
-                    styles.bearishText,
+                  market.direction === 'BULLISH' && styles.bullishText,
+                  market.direction === 'BEARISH' && styles.bearishText,
                 ]}>
                 {market.change}
               </Text>
@@ -1133,18 +1183,11 @@ export default function DashboardScreen({
             </View>
 
             <View style={styles.marketPriceBlock}>
-              <Text style={styles.marketPriceLabel}>
-                PRICE
-              </Text>
-
-              <Text style={styles.marketPrice}>
-                {market.price}
-              </Text>
+              <Text style={styles.marketPriceLabel}>PRICE</Text>
+              <Text style={styles.marketPrice}>{market.price}</Text>
             </View>
 
-            <Text style={styles.marketArrow}>
-              →
-            </Text>
+            <Text style={styles.marketArrow}>→</Text>
           </Pressable>
         ))}
 

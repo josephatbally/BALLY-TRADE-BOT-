@@ -1,4 +1,4 @@
-"""
+﻿"""
 BALLY FLOW - MetaTrader 5 Connection & Broker Symbol Discovery
 
 Production-oriented MT5 connection layer.
@@ -463,6 +463,69 @@ class MT5Connection:
 
         return list(result)
 
+    def history_deals(
+        self,
+        *,
+        date_from: Any,
+        date_to: Any,
+        symbol: Optional[str] = None,
+    ) -> List[Any]:
+        """
+        Return historical MT5 deals for a requested date range.
+
+        This is a read-only account-history operation.
+
+        When a logical BALLY FLOW market is supplied, it is resolved
+        to the broker's actual MT5 symbol before querying history.
+        """
+
+        if not self.is_connected():
+            raise RuntimeError(
+                "MT5 terminal is not connected"
+            )
+
+        actual_symbol: Optional[str] = None
+
+        if symbol is not None:
+            logical = self._clean_logical_symbol(symbol)
+
+            actual_symbol = self.resolve_symbol(
+                logical
+            )
+
+            if actual_symbol is None:
+                raise ValueError(
+                    f"Unable to resolve broker symbol "
+                    f"for logical market: {logical}"
+                )
+
+        try:
+            if actual_symbol is not None:
+                result = mt5.history_deals_get(
+                    date_from,
+                    date_to,
+                    group=actual_symbol,
+                )
+            else:
+                result = mt5.history_deals_get(
+                    date_from,
+                    date_to,
+                )
+
+        except Exception as exc:
+            raise RuntimeError(
+                "Unable to retrieve MT5 historical deals"
+            ) from exc
+
+        if result is None:
+            error = mt5.last_error()
+
+            raise RuntimeError(
+                "MT5 history_deals_get returned no data: "
+                f"{error}"
+            )
+
+        return list(result)
     def terminal_info(self) -> Any:
 
         if not self.is_connected():
@@ -1575,7 +1638,6 @@ def get_account_info() -> Any:
     It does not calculate or modify trading data.
     """
     return _connection.account_info()
-<<<<<<< HEAD
 
 def get_positions(
     *,
@@ -1591,8 +1653,25 @@ def get_positions(
     return _connection.positions(
         symbol=symbol
     )
-=======
->>>>>>> origin/main
+
+def get_history_deals(
+    *,
+    date_from: Any,
+    date_to: Any,
+    symbol: Optional[str] = None,
+) -> List[Any]:
+    """
+    Return historical MT5 deals for a requested date range.
+
+    This delegates to the shared MT5 connection and performs
+    no trading operation.
+    """
+
+    return _connection.history_deals(
+        date_from=date_from,
+        date_to=date_to,
+        symbol=symbol,
+    )
 
 __all__ = [
     "LOGICAL_MARKETS",
@@ -1603,10 +1682,8 @@ __all__ = [
     "is_mt5_connected",
     "mt5_status",
     "get_account_info",
-<<<<<<< HEAD
     "get_positions",
-=======
->>>>>>> origin/main
+    "get_history_deals",
     "resolve_symbol",
     "ensure_symbol",
     "get_symbol_info",
@@ -1615,3 +1692,6 @@ __all__ = [
     "discover_market_symbols",
     "shutdown_mt5",
 ]
+
+
+

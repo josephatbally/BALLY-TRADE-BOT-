@@ -51,6 +51,7 @@ type Market = {
   reason: string;
   points: number[];
   dataReady: boolean;
+  analysisAvailable: boolean;
   latestTime: number | string | null;
 };
 
@@ -59,15 +60,6 @@ type UserAction =
   | 'SELL'
   | 'NO_TRADE'
   | null;
-
-const FALLBACK_MARKETS = [
-  'XAUUSD',
-  'EURUSD',
-  'GBPUSD',
-  'USDJPY',
-  'XAGUSD',
-  'NASDAQ',
-];
 
 const POLL_INTERVAL = 10000;
 
@@ -89,7 +81,7 @@ function toNumber(value: unknown): number | null {
 
 function formatPrice(value: number | null): string {
   if (value === null) {
-    return '—';
+    return '�';
   }
 
   if (Math.abs(value) >= 1000) {
@@ -112,7 +104,7 @@ function formatPrice(value: number | null): string {
 
 function formatPercent(value: number | null): string {
   if (value === null || !Number.isFinite(value)) {
-    return '—';
+    return '�';
   }
 
   const prefix = value > 0 ? '+' : '';
@@ -291,7 +283,7 @@ function getReason(
     Array.isArray(analysis?.reasons) &&
     analysis.reasons.length > 0
   ) {
-    return analysis.reasons.join(' • ');
+    return analysis.reasons.join(' � ');
   }
 
   return 'Awaiting complete market analysis.';
@@ -331,6 +323,7 @@ function buildMarket(
       scan?.data_ready &&
         (scan?.ready_timeframe_count ?? 0) >= 3,
     ),
+    analysisAvailable: Boolean(analysis),
     latestTime:
       m15?.latest_closed_candle_time ??
       m15?.latest_candle_time ??
@@ -405,16 +398,14 @@ function DecisionBadge({
   );
 }
 
-export default function TradesScreen({
-  navigation,
-}: TradesScreenProps) {
+export default function TradesScreen({}: TradesScreenProps) {
   const insets = useSafeAreaInsets();
 
   const [mode, setMode] =
     useState<TradingMode>('technical');
 
   const [marketSymbols, setMarketSymbols] =
-    useState<string[]>(FALLBACK_MARKETS);
+    useState<string[]>([]);
 
   const [marketData, setMarketData] = useState<
     Record<string, MarketScanItem>
@@ -429,7 +420,7 @@ export default function TradesScreen({
   >([]);
 
   const [selectedSymbol, setSelectedSymbol] =
-    useState('XAUUSD');
+    useState('');
 
   const [userAction, setUserAction] =
     useState<UserAction>(null);
@@ -460,14 +451,26 @@ export default function TradesScreen({
     ],
   );
 
-  const loadData = useCallback(
+  
+    const loadData = useCallback(
     async (showLoader = false) => {
       if (showLoader) {
         setRefreshing(true);
       }
 
+      setError(null);
+
+      const errors: string[] = [];
+
       try {
-        setError(null);
+        /*
+         * Each backend source is loaded independently.
+         *
+         * This is intentional:
+         * a failure in positions must not prevent
+         * market data or market analysis from reaching
+         * the screen.
+         */
 
         const [
           appModeResult,
@@ -475,91 +478,164 @@ export default function TradesScreen({
           scanResult,
           analysisResult,
           positionsResult,
-        ] = await Promise.all([
+        ] = await Promise.allSettled([
           getApplicationMode(),
           getMarkets(),
           scanAllMarkets(),
-          getMarketAnalysis(),
+          getMarketAnalysis('technical'),
           getOpenPositions(),
         ]);
 
+        /*
+         * APPLICATION MODE
+         */
         if (
-          appModeResult?.mode === 'technical' ||
-          appModeResult?.mode === 'hybrid'
+          appModeResult.status === 'fulfilled' &&
+          appModeResult.value?.mode
         ) {
-          setMode(appModeResult.mode);
+          setMode(appModeResult.value.mode);
+        } else if (
+          appModeResult.status === 'rejected'
+        ) {
+          errors.push('Application mode unavailable.');
         }
 
-        const symbols =
-          Array.isArray(marketsResult?.markets) &&
-          marketsResult.markets.length > 0
-            ? marketsResult.markets
-            : FALLBACK_MARKETS;
+        /*
+         * MARKET UNIVERSE
+         */
+        let symbols: string[] = [];
 
-        setMarketSymbols(symbols);
+        if (marketsResult.status === 'fulfilled') {
+          const backendMarkets =
+            Array.isArray(
+              marketsResult.value?.markets,
+            )
+              ? marketsResult.value.markets
+              : [];
 
-        const scanMap: Record<
-          string,
-          MarketScanItem
-        > = {};
+          symbols = backendMarkets
+            .map(symbol =>
+              String(symbol).toUpperCase(),
+            )
+            .filter(symbol =>
+              [
+                'XAUUSD',
+                'EURUSD',
+                'GBPUSD',
+                'USDJPY',
+                'XAGUSD',
+                'NASDAQ',
+              ].includes(symbol),
+            );
 
-        const scannedMarkets =
-          scanResult?.scan?.markets ?? [];
+          setMarketSymbols(symbols);
+        } else {
+          errors.push('Market universe unavailable.');
+        }
 
-        scannedMarkets.forEach(
-          (item: MarketScanItem) => {
-            const symbol =
-              item.market ??
-              item.symbol ??
-              item.broker_symbol;
+        /*
+         * MARKET DATA SCAN
+         */
+        if (scanResult.status === 'fulfilled') {
+          const scanMap: Record<
+            string,
+            MarketScanItem
+          > = {};
 
-            if (symbol) {
-              scanMap[symbol.toUpperCase()] = item;
-            }
-          },
-        );
+          const scannedMarkets =
+            scanResult.value?.scan?.markets ?? [];
 
-        setMarketData(scanMap);
+          scannedMarkets.forEach(
+            (item: MarketScanItem) => {
+              const logicalSymbol =
+                item.market ??
+                item.symbol ??
+                item.broker_symbol;
 
-        const analysisMap: Record<
-          string,
-          MarketAnalysisItem
-        > = {};
+              if (!logicalSymbol) {
+                return;
+              }
 
-        const analysedMarkets =
-          analysisResult?.analysis ?? {};
+              scanMap[
+                String(logicalSymbol).toUpperCase()
+              ] = item;
+            },
+          );
 
-        Object.entries(analysedMarkets).forEach(
-          ([symbol, item]) => {
+          setMarketData(scanMap);
+        } else {
+          errors.push('Market scan unavailable.');
+        }
+
+        /*
+         * AUTHORITATIVE MARKET ANALYSIS
+         *
+         * Technical mode is explicitly requested.
+         * This prevents the screen from accidentally
+         * depending on an unspecified API default.
+         */
+        if (analysisResult.status === 'fulfilled') {
+          const analysisMap: Record<
+            string,
+            MarketAnalysisItem
+          > = {};
+
+          const analysedMarkets =
+            analysisResult.value?.analysis ?? {};
+
+          Object.entries(
+            analysedMarkets,
+          ).forEach(([symbol, item]) => {
             if (
               item &&
               typeof item === 'object'
             ) {
-              analysisMap[symbol.toUpperCase()] =
-                item as MarketAnalysisItem;
+              analysisMap[
+                String(symbol).toUpperCase()
+              ] = item as MarketAnalysisItem;
             }
-          },
-        );
+          });
 
-        setAnalysisData(analysisMap);
+          setAnalysisData(analysisMap);
+        } else {
+          errors.push('Market analysis unavailable.');
+        }
 
-        setPositions(
-          positionsResult?.positions ?? [],
-        );
+        /*
+         * OPEN MT5 POSITIONS
+         */
+        if (positionsResult.status === 'fulfilled') {
+          setPositions(
+            positionsResult.value?.positions ?? [],
+          );
+        } else {
+          errors.push('Open positions unavailable.');
+        }
 
+        /*
+         * SELECT FIRST BACKEND MARKET ONLY WHEN
+         * THE CURRENT SELECTION IS NO LONGER VALID.
+         */
         if (
-          !symbols.includes(selectedSymbol) &&
-          symbols.length > 0
+          symbols.length > 0 &&
+          !symbols.includes(
+            selectedSymbol.toUpperCase(),
+          )
         ) {
           setSelectedSymbol(symbols[0]);
+          setUserAction(null);
         }
 
         setLastUpdated(new Date());
+
+        if (errors.length > 0) {
+          setError(errors.join(' '));
+        }
       } catch (err) {
         const message =
           err instanceof Error
             ? err.message
-            : 'Unable to load live trading data.';
+            : 'Unable to load BALLY FLOW backend data.';
 
         setError(message);
       } finally {
@@ -570,7 +646,7 @@ export default function TradesScreen({
     [selectedSymbol],
   );
 
-  useEffect(() => {
+    useEffect(() => {
     loadData(true);
 
     const interval = setInterval(() => {
@@ -598,37 +674,48 @@ export default function TradesScreen({
       markets.some(
         market =>
           market.dataReady &&
-          market.price !== '—',
+          market.price !== '�',
       ),
     [markets],
   );
 
-  const totalConfidence = selectedMarket.confidence;
+  const totalConfidence = selectedMarket.analysisAvailable
+    ? selectedMarket.confidence
+    : null;
 
   const selectedPositions = useMemo(
-    () =>
-      positions.filter(
+    () => {
+      if (!selectedSymbol) {
+        return [];
+      }
+
+      return positions.filter(
         position =>
           position.symbol?.toUpperCase() ===
           selectedSymbol.toUpperCase(),
-      ),
+      );
+    },
     [positions, selectedSymbol],
   );
 
   const totalOpenProfit = useMemo(
     () =>
-      positions.reduce(
+      selectedPositions.reduce(
         (sum, position) =>
-          sum + (Number(position.profit) || 0),
+          sum + Number(position.profit ?? 0),
         0,
       ),
-    [positions],
+    [selectedPositions],
   );
 
   const handleAction = (action: UserAction) => {
+    if (!selectedMarket.analysisAvailable) {
+      setUserAction(null);
+      return;
+    }
+
     setUserAction(action);
   };
-
   return (
     <View
       style={[
@@ -692,8 +779,8 @@ export default function TradesScreen({
 
             <Text style={styles.statusLabel}>
               {connectionReady
-                ? 'LIVE DATA'
-                : 'OFFLINE'}
+                ? 'DATA READY'
+                : 'DATA UNAVAILABLE'}
             </Text>
           </View>
 
@@ -819,11 +906,15 @@ export default function TradesScreen({
                     DECISION
                   </Text>
 
-                  <DecisionBadge
-                    decision={
-                      selectedMarket.decision
-                    }
-                  />
+                  <>{selectedMarket.analysisAvailable ? (
+                    <DecisionBadge
+                      decision={selectedMarket.decision}
+                    />
+                  ) : (
+                    <Text style={styles.metricValue}>
+                      ANALYSIS UNAVAILABLE
+                    </Text>
+                  )}</>
                 </View>
               </View>
 
@@ -857,7 +948,7 @@ export default function TradesScreen({
                   </Text>
 
                   <Text style={styles.metricValue}>
-                    {totalConfidence.toFixed(1)}%
+                    {totalConfidence !== null ? `${totalConfidence.toFixed(1)}%` : '�'}
                   </Text>
                 </View>
 
@@ -888,7 +979,7 @@ export default function TradesScreen({
                 </Text>
 
                 <Text style={styles.cardStage}>
-                  H4 → H1 → M15
+                  H4 ? H1 ? M15
                 </Text>
               </View>
 
@@ -903,14 +994,16 @@ export default function TradesScreen({
               </View>
 
               <View style={styles.analysisLine}>
-                <Text style={styles.analysisLabel}>
-                  DIRECTION
-                </Text>
+  <Text style={styles.analysisLabel}>
+    DIRECTION
+  </Text>
 
-                <Text style={styles.analysisValue}>
-                  {selectedMarket.direction}
-                </Text>
-              </View>
+  <Text style={styles.analysisValue}>
+    {selectedMarket.analysisAvailable
+      ? selectedMarket.direction
+      : 'ANALYSIS UNAVAILABLE'}
+  </Text>
+</View>
 
               <View style={styles.analysisLine}>
                 <Text style={styles.analysisLabel}>
@@ -918,21 +1011,21 @@ export default function TradesScreen({
                 </Text>
 
                 <Text style={styles.analysisValue}>
-                  {selectedMarket.confidence.toFixed(
-                    1,
-                  )}
-                  %
-                </Text>
+  {selectedMarket.analysisAvailable
+    ? `${selectedMarket.confidence.toFixed(1)}%`
+    : '�'}
+</Text>
               </View>
 
               <View style={styles.reasonBox}>
                 <Text style={styles.reasonLabel}>
                   ENGINE REASON
                 </Text>
-
-                <Text style={styles.reasonText}>
-                  {selectedMarket.reason}
-                </Text>
+              <Text style={styles.reasonText}>
+  {selectedMarket.analysisAvailable
+    ? selectedMarket.reason
+    : 'Backend analysis has not returned for this market.'}
+</Text>
               </View>
             </View>
 
@@ -1004,7 +1097,7 @@ export default function TradesScreen({
                           style={
                             styles.positionMeta
                           }>
-                          {position.type} •{' '}
+                          {position.type} �{' '}
                           {position.volume}
                         </Text>
                       </View>
@@ -1153,7 +1246,7 @@ export default function TradesScreen({
               </Text>
 
               <Text style={styles.footerText}>
-                {mode.toUpperCase()} • H4/H1/M15
+                {mode.toUpperCase()} � H4/H1/M15
               </Text>
             </View>
           </>
@@ -1797,3 +1890,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
   },
 });
+
+
+
+
+
+
+
+
+
+

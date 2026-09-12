@@ -1,4 +1,4 @@
-
+﻿
 """
 BALLY FLOW API
 
@@ -33,6 +33,7 @@ from .routes.application import router as application_router
 from .routes.health import router as health_router
 from .routes.markets import router as markets_router
 from .routes.positions import router as positions_router
+from .routes.history import router as history_router
 
 from backend.main import app as application
 
@@ -98,6 +99,12 @@ app.include_router(
 )
 
 app.include_router(
+    history_router,
+    prefix="/api/v1/history",
+    tags=["History"],
+)
+
+app.include_router(
     account_router,
     prefix="/api/v1/account",
     tags=["Account"],
@@ -118,3 +125,4 @@ def root():
         "version": APP_VERSION,
         "status": "ONLINE",
     }
+

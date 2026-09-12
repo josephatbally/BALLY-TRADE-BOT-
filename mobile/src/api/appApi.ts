@@ -156,3 +156,25 @@ export function updateApplicationMode(
     },
   );
 }
+
+/**
+ * ============================================================
+ * ACCOUNT INFO (MT5 PORTFOLIO)
+ * ============================================================
+ */
+
+export type AccountInfoResponse = {
+  status: string;
+  connected: boolean;
+  balance: number | null;
+  equity: number | null;
+  profit: number | null;
+  margin: number | null;
+  free_margin: number | null;
+  open_trades: number | null;
+  currency: string | null;
+};
+
+export function getAccountInfo() {
+  return apiRequest<AccountInfoResponse>('/api/v1/account');
+}
