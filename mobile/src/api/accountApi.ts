@@ -15,3 +15,6 @@ export interface AccountResponse {
 export async function getAccountInfo(): Promise<AccountResponse> {
   return apiRequest<AccountResponse>('/api/v1/account');
 }
+
+export const getAccount = getAccountInfo;
+export const getAccountData = getAccountInfo;
