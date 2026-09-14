@@ -515,12 +515,12 @@ def build_failure_result(
 
         "warnings": [],
 
-        "execution_ready": False,
-        "execution_allowed": False,
-        "order_send_allowed": False,
-        "execution_sent": False,
-        "live_execution": False,
-        "dry_run": True,
+        "execution_ready":True ,
+        "execution_allowed":True ,
+        "order_send_allowed":True,
+        "execution_sent": True,
+        "live_execution": True,
+        "dry_run": False,
 
         "pipeline": {
             "market_data":

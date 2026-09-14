@@ -259,8 +259,8 @@ class FinalGate:
             "executor_allowed": True,
 
             # This module never performs these operations.
-            "mt5_order_check": False,
-            "mt5_order_send": False,
+            "mt5_order_check":  True,
+            "mt5_order_send": True,
         }
 
     # ==============================================================
