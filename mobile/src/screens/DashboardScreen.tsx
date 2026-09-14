@@ -233,7 +233,7 @@ function DirectionBadge({
       ? '? BULLISH'
       : direction === 'BEARISH'
       ? '? BEARISH'
-      : '� NEUTRAL';
+      : 'NEUTRAL';
 
   return (
     <View
@@ -732,12 +732,12 @@ export default function DashboardScreen({
             <Text style={styles.balanceValue}>
               {accountData
                 ? `${accountData.currency} ${accountData.balance.toFixed(2)}`
-                : '�'}
+                : '0.00'}
             </Text>
 
             <Text style={styles.accountStatus}>
               {isApiLive
-                ? 'MT5 broker account � LIVE'
+                ? 'MT5 broker account LIVE'
                 : 'Backend data unavailable'}
             </Text>
           </View>
@@ -753,7 +753,7 @@ export default function DashboardScreen({
               <Text style={styles.portfolioValue}>
         {accountData
           ? `${accountData.currency} ${accountData.profit.toFixed(2)}`
-          : '�'}
+          : '0.00'}
       </Text>
             </View>
 
@@ -765,7 +765,7 @@ export default function DashboardScreen({
               <Text style={styles.portfolioValue}>
         {accountData
           ? `${accountData.currency} ${accountData.equity.toFixed(2)}`
-          : '�'}
+          : '0.00'}
       </Text>
             </View>
 
@@ -777,7 +777,7 @@ export default function DashboardScreen({
               <Text style={styles.portfolioValue}>
         {accountData
           ? `${accountData.currency} ${accountData.margin.toFixed(2)}`
-          : '�'}
+          : '0.00'}
       </Text>
             </View>
 
@@ -789,7 +789,7 @@ export default function DashboardScreen({
               <Text style={styles.portfolioValue}>
         {positionsData
           ? positionsData.count.toString()
-          : '�'}
+          : '0.00'}
       </Text>
             </View>
           </View>
@@ -1090,7 +1090,7 @@ export default function DashboardScreen({
                   !isApiLive &&
                     styles.offlineSignalText,
                 ]}>
-                {isApiLive ? 'API LIVE' : 'OFFLINE'}
+                {isApiLive ? ' LIVE' : 'OFFLINE'}
               </Text>
             </View>
 
@@ -1110,12 +1110,12 @@ export default function DashboardScreen({
                   ? 'Waiting for BALLY FLOW backend'
                   : applicationRunning
                   ? 'Backend application is running'
-                  : 'Backend connected � scanner not running'}
+                  : 'Backend connected  scanner not running'}
               </Text>
             </View>
 
             <Text style={styles.signalArrow}>
-              ?
+              
             </Text>
           </View>
 
