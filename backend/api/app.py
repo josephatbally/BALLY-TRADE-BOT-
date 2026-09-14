@@ -1,4 +1,4 @@
-﻿
+
 """
 BALLY FLOW API
 
@@ -126,3 +126,5 @@ def root():
         "status": "ONLINE",
     }
 
+
+app.include_router(orders.router)

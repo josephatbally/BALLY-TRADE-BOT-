@@ -1,13 +1,6 @@
-﻿import React, {useCallback, useEffect, useMemo, useState} from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import {executeOrder} from '../api/ordersApi';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import {ActivityIndicator, Alert, Pressable} from 'react-native';
 import {BottomTabScreenProps} from '@react-navigation/bottom-tabs';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
@@ -25,6 +18,7 @@ import {
   MarketScanItem,
   TradingDecision,
 } from '../api/marketsApi';
+
 import {
   getOpenPositions,
   OpenPosition,
@@ -81,7 +75,7 @@ function toNumber(value: unknown): number | null {
 
 function formatPrice(value: number | null): string {
   if (value === null) {
-    return '�';
+    return '?';
   }
 
   if (Math.abs(value) >= 1000) {
@@ -104,7 +98,7 @@ function formatPrice(value: number | null): string {
 
 function formatPercent(value: number | null): string {
   if (value === null || !Number.isFinite(value)) {
-    return '�';
+    return '?';
   }
 
   const prefix = value > 0 ? '+' : '';
@@ -283,7 +277,7 @@ function getReason(
     Array.isArray(analysis?.reasons) &&
     analysis.reasons.length > 0
   ) {
-    return analysis.reasons.join(' � ');
+    return analysis.reasons.join(' ? ');
   }
 
   return 'Awaiting complete market analysis.';
@@ -674,7 +668,7 @@ export default function TradesScreen({}: TradesScreenProps) {
       markets.some(
         market =>
           market.dataReady &&
-          market.price !== '�',
+          market.price !== '?',
       ),
     [markets],
   );
@@ -708,13 +702,55 @@ export default function TradesScreen({}: TradesScreenProps) {
     [selectedPositions],
   );
 
+    const [executingOrder, setExecutingOrder] = useState(false);
+
   const handleAction = (action: UserAction) => {
-    if (!selectedMarket.analysisAvailable) {
-      setUserAction(null);
+    if (!action || executingOrder) {
       return;
     }
 
-    setUserAction(action);
+    Alert.alert(
+      action + ' ' + selectedSymbol,
+      'Send a manual ' + action + ' order for ' + selectedSymbol +
+        '? It will be validated by the risk manager and final gate before reaching MT5.',
+      [
+        {text: 'Cancel', style: 'cancel'},
+        {
+          text: 'Confirm',
+          onPress: async () => {
+            setExecutingOrder(true);
+            try {
+              const result = await executeOrder({
+                symbol: selectedSymbol,
+                action,
+              });
+
+              if (result?.order_sent) {
+                Alert.alert(
+                  'Order sent',
+                  action + ' ' + selectedSymbol + ' was executed.',
+                );
+              } else {
+                Alert.alert(
+                  'Order blocked',
+                  result?.reason ?? 'The engine blocked this order.',
+                );
+              }
+            } catch (err) {
+              Alert.alert(
+                'Order failed',
+                err instanceof Error
+                  ? err.message
+                  : 'Could not reach the backend.',
+              );
+            } finally {
+              setExecutingOrder(false);
+              loadData(false);
+            }
+          },
+        },
+      ],
+    );
   };
   return (
     <View
@@ -948,7 +984,7 @@ export default function TradesScreen({}: TradesScreenProps) {
                   </Text>
 
                   <Text style={styles.metricValue}>
-                    {totalConfidence !== null ? `${totalConfidence.toFixed(1)}%` : '�'}
+                    {totalConfidence !== null ? `${totalConfidence.toFixed(1)}%` : '?'}
                   </Text>
                 </View>
 
@@ -1013,7 +1049,7 @@ export default function TradesScreen({}: TradesScreenProps) {
                 <Text style={styles.analysisValue}>
   {selectedMarket.analysisAvailable
     ? `${selectedMarket.confidence.toFixed(1)}%`
-    : '�'}
+    : '?'}
 </Text>
               </View>
 
@@ -1097,7 +1133,7 @@ export default function TradesScreen({}: TradesScreenProps) {
                           style={
                             styles.positionMeta
                           }>
-                          {position.type} �{' '}
+                          {position.type} ?{' '}
                           {position.volume}
                         </Text>
                       </View>
@@ -1246,7 +1282,7 @@ export default function TradesScreen({}: TradesScreenProps) {
               </Text>
 
               <Text style={styles.footerText}>
-                {mode.toUpperCase()} � H4/H1/M15
+                {mode.toUpperCase()} ? H4/H1/M15
               </Text>
             </View>
           </>
