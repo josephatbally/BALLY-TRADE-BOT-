@@ -22,6 +22,7 @@ The API delegates application operations to backend.main.
 """
 
 from __future__ import annotations
+from backend.api.routes import orders
 
 from contextlib import asynccontextmanager
 

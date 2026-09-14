@@ -1,6 +1,15 @@
 import {executeOrder} from '../api/ordersApi';
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
-import {ActivityIndicator, Alert, Pressable} from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import {BottomTabScreenProps} from '@react-navigation/bottom-tabs';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
@@ -704,13 +713,20 @@ export default function TradesScreen({}: TradesScreenProps) {
 
     const [executingOrder, setExecutingOrder] = useState(false);
 
-  const handleAction = (action: UserAction) => {
+    const handleAction = (action: UserAction) => {
     if (!action || executingOrder) {
       return;
     }
 
+    if (action === 'NO_TRADE') {
+      setUserAction('NO_TRADE');
+      return;
+    }
+
+    const orderAction: 'BUY' | 'SELL' = action;
+
     Alert.alert(
-      action + ' ' + selectedSymbol,
+      orderAction + ' ' + selectedSymbol,
       'Send a manual ' + action + ' order for ' + selectedSymbol +
         '? It will be validated by the risk manager and final gate before reaching MT5.',
       [
@@ -722,7 +738,7 @@ export default function TradesScreen({}: TradesScreenProps) {
             try {
               const result = await executeOrder({
                 symbol: selectedSymbol,
-                action,
+                action: orderAction,
               });
 
               if (result?.order_sent) {

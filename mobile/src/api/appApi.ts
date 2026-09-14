@@ -202,3 +202,15 @@ export function setAutoTradeStatus(enabled: boolean) {
     }),
   });
 }
+
+export function startApplication() {
+  return apiRequest<ApplicationStatusResponse>('/api/v1/app/start', {
+    method: 'POST',
+  });
+}
+
+export function stopApplication() {
+  return apiRequest<ApplicationStatusResponse>('/api/v1/app/stop', {
+    method: 'POST',
+  });
+}

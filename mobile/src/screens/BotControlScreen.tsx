@@ -1,4 +1,4 @@
-ï»¿import React from 'react';
+import React from 'react';
 import {
   Alert,
   Pressable,
@@ -129,6 +129,12 @@ export default function BotControlScreen({
   const [botRunning, setBotRunning] = React.useState(false);
   const [autoTradingEnabled, setAutoTradingEnabled] = React.useState(false);
   const [updating, setUpdating] = React.useState(false);
+
+  // Derived flags for UI status indicators
+  const executionEnabled = botRunning;
+  const liveTradingEnabled = autoTradingEnabled;
+  const botRequested = updating;
+  const autoExecutionRequested = updating;
 
   const loadStatus = React.useCallback(async () => {
     try {
@@ -324,7 +330,7 @@ export default function BotControlScreen({
             accessibilityLabel="Close bot control"
             onPress={() => navigation.goBack()}
             style={styles.closeButton}>
-            <Text style={styles.closeButtonText}>Ã—</Text>
+            <Text style={styles.closeButtonText}>×</Text>
           </Pressable>
         </View>
 
@@ -480,7 +486,7 @@ export default function BotControlScreen({
 
         <View style={styles.card}>
           <ControlRow
-            icon="â—ˆ"
+            icon="?"
             title="Bot Activation"
             subtitle={
               botRequested
@@ -505,7 +511,7 @@ export default function BotControlScreen({
           <View style={styles.divider} />
 
           <ControlRow
-            icon="ÏŸ"
+            icon="?"
             title="Automated Execution"
             subtitle={
               autoExecutionRequested
@@ -555,23 +561,23 @@ export default function BotControlScreen({
 
           <View style={styles.safetyList}>
             <Text style={styles.safetyItem}>
-              â€¢ Backend authentication required
+              • Backend authentication required
             </Text>
 
             <Text style={styles.safetyItem}>
-              â€¢ Risk validation required
+              • Risk validation required
             </Text>
 
             <Text style={styles.safetyItem}>
-              â€¢ Broker and margin validation required
+              • Broker and margin validation required
             </Text>
 
             <Text style={styles.safetyItem}>
-              â€¢ MT5 execution safety controls required
+              • MT5 execution safety controls required
             </Text>
 
             <Text style={styles.safetyItem}>
-              â€¢ Explicit backend authorization required
+              • Explicit backend authorization required
             </Text>
           </View>
         </View>
