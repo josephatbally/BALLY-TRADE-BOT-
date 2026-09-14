@@ -1,4 +1,5 @@
-﻿import React from 'react';
+﻿import { getHistorySummary, HistorySummaryResponse } from '../api/historyApi';
+import React from 'react';
 import {
   Dimensions,
   Pressable,
@@ -8,7 +9,7 @@ import {
   Switch,
   Text,
   View,
-} from 'react-native';
+  Platform } from 'react-native';
 import {BottomTabScreenProps} from '@react-navigation/bottom-tabs';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
@@ -285,6 +286,7 @@ export default function DashboardScreen({
    */
   const [accountData, setAccountData] =
     React.useState<AccountResponse | null>(null);
+  const [historySummary, setHistorySummary] = React.useState<HistorySummaryResponse | null>(null);
 
   const [positionsData, setPositionsData] =
     React.useState<PositionsResponse | null>(null);
@@ -357,6 +359,14 @@ export default function DashboardScreen({
         if (healthOnline) {
           try {
             const account = await getAccount();
+            try {
+              const summary = await getHistorySummary(7);
+              if (mountedRef.current) {
+                setHistorySummary(summary);
+              }
+            } catch {
+              // ignore history summary error on refresh
+            }
 
             if (mountedRef.current) {
               setAccountData(account);
@@ -608,8 +618,7 @@ export default function DashboardScreen({
   };
 
   const openHistory = () => {
-    // History is not part of MainTabParamList; use the existing trades screen.
-    navigation.navigate('Trades', user);
+    (navigation as any).navigate('History');
   };
 
   const openMarkets = () => {
@@ -729,7 +738,7 @@ export default function DashboardScreen({
               BALANCE
             </Text>
 
-            <Text style={styles.balanceValue}>
+            <Text allowFontScaling={false} style={[styles.balanceValue, styles.metricGreen]}>
               {accountData
                 ? `${accountData.currency} ${accountData.balance.toFixed(2)}`
                 : '0.00'}
@@ -1131,67 +1140,168 @@ export default function DashboardScreen({
         </Pressable>
 
         {/* ================================================== */}
-        {/* MARKET OVERVIEW */}
+        {/* BROKER IDENTITY */}
         {/* ================================================== */}
- <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>MARKET OVERVIEW</Text>
-          <Pressable onPress={openMarkets}>
-            <Text style={styles.viewAll}>ALL MARKETS →</Text>
-          </Pressable>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>BROKER IDENTITY</Text>
+          <View style={styles.badgeLive}>
+            <View style={[styles.noticeDot, isApiLive && accountData?.connected ? styles.noticeDotLive : styles.noticeDotOffline]} />
+            <Text style={styles.badgeLiveText}>{accountData?.connected ? (accountData?.broker?.trade_mode || 'LIVE') : 'OFFLINE'}</Text>
+          </View>
         </View>
 
-        <View style={styles.marketDataNotice}>
-          <View
-            style={[
-              styles.noticeDot,
-              isApiLive ? styles.noticeDotLive : styles.noticeDotOffline,
-            ]}
-          />
-          <Text style={styles.marketDataNoticeText}>
-            {isApiLive
-              ? 'BACKEND CONNECTED — MARKET FEED PENDING'
-              : 'MARKET DATA OFFLINE — BACKEND UNAVAILABLE'}
-          </Text>
-        </View>
-
-        {MARKETS.map(market => (
-          <Pressable
-            key={market.symbol}
-            onPress={openMarkets}
-            style={({pressed}) => [
-              styles.marketCard,
-              pressed && styles.quickCardPressed,
-            ]}>
-            <View style={styles.marketInfo}>
-              <Text style={styles.marketSymbol}>{market.symbol}</Text>
-              <DirectionBadge direction={market.direction} />
-              <Text
-                style={[
-                  styles.marketChange,
-                  market.direction === 'BULLISH' && styles.bullishText,
-                  market.direction === 'BEARISH' && styles.bearishText,
-                ]}>
-                {market.change}
+        <View style={styles.brokerCard}>
+          <View style={styles.brokerHeader}>
+            <View style={styles.brokerAvatar}>
+              <Text style={styles.brokerAvatarText}>
+                {accountData?.broker?.company ? accountData.broker.company.substring(0, 2).toUpperCase() : 'MT'}
               </Text>
             </View>
-
-            <View style={styles.marketChartWrapper}>
-              <MarketLineChart
-                points={market.points}
-                direction={market.direction}
-              />
+            <View style={styles.brokerMainInfo}>
+              <Text style={styles.brokerName} numberOfLines={1}>
+                {accountData?.broker?.company || 'MetaQuotes / MT5 Terminal'}
+              </Text>
+              <Text style={styles.brokerServer} numberOfLines={1}>
+                Server: {accountData?.broker?.server || 'Standard Gateway'}
+              </Text>
             </View>
+          </View>
 
-            <View style={styles.marketPriceBlock}>
-              <Text style={styles.marketPriceLabel}>PRICE</Text>
-              <Text style={styles.marketPrice}>{market.price}</Text>
+          <View style={styles.brokerMetricsRow}>
+            <View style={styles.brokerMetric}>
+              <Text style={styles.brokerMetricLabel}>LOGIN ID</Text>
+              <Text style={styles.brokerMetricValue}>
+                {accountData?.broker?.login ? accountData.broker.login.toString() : '—'}
+              </Text>
             </View>
-
-            <Text style={styles.marketArrow}>→</Text>
-          </Pressable>
-        ))}
+            <View style={styles.brokerMetricDivider} />
+            <View style={styles.brokerMetric}>
+              <Text style={styles.brokerMetricLabel}>LEVERAGE</Text>
+              <Text style={styles.brokerMetricValue}>
+                {accountData?.broker?.leverage ? `1:${accountData.broker.leverage}` : '1:100'}
+              </Text>
+            </View>
+            <View style={styles.brokerMetricDivider} />
+            <View style={styles.brokerMetric}>
+              <Text style={styles.brokerMetricLabel}>CURRENCY</Text>
+              <Text style={styles.brokerMetricValue}>{accountData?.currency || 'USD'}</Text>
+            </View>
+          </View>
+        </View>
 
         {/* ================================================== */}
+        {/* WIN RATE & PERFORMANCE CYCLE */}
+        {/* ================================================== */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>CYCLE PERFORMANCE (7D)</Text>
+          <Text style={styles.sectionSubtitle}>LIVE MT5 DEALS</Text>
+        </View>
+
+        <View style={styles.winRateCard}>
+          <View style={styles.winRateLeft}>
+            <View style={styles.winRateGauge}>
+              <Text style={styles.winRatePercent}>
+                {historySummary ? `${historySummary.win_rate.toFixed(1)}%` : '0.0%'}
+              </Text>
+              <Text style={styles.winRateGaugeLabel}>WIN RATE</Text>
+            </View>
+          </View>
+
+          <View style={styles.winRateStats}>
+            <View style={styles.statRow}>
+              <Text style={styles.statLabel}>Total Closed Trades</Text>
+              <Text style={styles.statValueBold}>{historySummary?.total_trades ?? 0}</Text>
+            </View>
+            <View style={styles.statRow}>
+              <Text style={styles.statLabel}>Wins / Losses</Text>
+              <Text style={styles.statValueBold}>
+                <Text style={styles.bullishText}>{historySummary?.wins ?? 0}W</Text>
+                {' / '}
+                <Text style={styles.bearishText}>{historySummary?.losses ?? 0}L</Text>
+              </Text>
+            </View>
+            <View style={styles.statRow}>
+              <Text style={styles.statLabel}>Profit Factor</Text>
+              <Text style={styles.statValueBold}>
+                {historySummary ? historySummary.profit_factor.toFixed(2) : '0.00'}
+              </Text>
+            </View>
+            <View style={styles.statRow}>
+              <Text style={styles.statLabel}>Net Closed P&L</Text>
+              <Text
+                style={[
+                  styles.statValueBold,
+                  (historySummary?.net_profit ?? 0) >= 0 ? styles.bullishText : styles.bearishText,
+                ]}>
+                {historySummary ? `${historySummary.net_profit >= 0 ? '+' : ''}${historySummary.net_profit.toFixed(2)} ${accountData?.currency || 'USD'}` : '0.00 USD'}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* ================================================== */}
+        {/* 6-PAIR LIVE MARKET TABLE */}
+        {/* ================================================== */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>LIVE MARKETS (6 PAIRS)</Text>
+          <Pressable onPress={openMarkets}>
+            <Text style={styles.viewAll}>SCANNER →</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.marketTable}>
+          <View style={styles.marketTableHeader}>
+            <Text style={[styles.marketTh, { flex: 1.5 }]}>PAIR</Text>
+            <Text style={[styles.marketTh, { flex: 1.5, textAlign: 'right' }]}>PRICE</Text>
+            <Text style={[styles.marketTh, { flex: 1.5, textAlign: 'center' }]}>TREND</Text>
+            <Text style={[styles.marketTh, { flex: 1.2, textAlign: 'right' }]}>24H</Text>
+          </View>
+
+          {MARKETS.map((market, idx) => (
+            <Pressable
+              key={market.symbol}
+              onPress={openMarkets}
+              style={({ pressed }) => [
+                styles.marketTableRow,
+                idx % 2 === 1 && styles.marketTableRowAlt,
+                pressed && styles.quickCardPressed,
+              ]}>
+              <View style={{ flex: 1.5 }}>
+                <Text style={styles.tableSymbol}>{market.symbol}</Text>
+                <Text style={styles.tablePairType}>
+                  {market.symbol.includes('XAU') || market.symbol.includes('XAG') ? 'COMMODITY' : market.symbol.includes('NAS') ? 'INDEX' : 'FOREX'}
+                </Text>
+              </View>
+
+              <View style={{ flex: 1.5, alignItems: 'flex-end' }}>
+                <Text style={styles.tablePrice}>{market.price !== '—' ? market.price : 'LIVE'}</Text>
+              </View>
+
+              <View style={{ flex: 1.5, alignItems: 'center' }}>
+                <MarketLineChart points={market.points} direction={market.direction} />
+              </View>
+
+              <View style={{ flex: 1.2, alignItems: 'flex-end' }}>
+                <View
+                  style={[
+                    styles.changeBadge,
+                    market.direction === 'BULLISH' ? styles.changeBadgeBullish : styles.changeBadgeBearish,
+                  ]}>
+                  <Text
+                    style={[
+                      styles.changeBadgeText,
+                      market.direction === 'BULLISH' ? styles.bullishText : styles.bearishText,
+                    ]}>
+                    {market.change}
+                  </Text>
+                </View>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+
+        {/* ================================================== */}
+        {/* FOOTER */}{/* ================================================== */}
         {/* FOOTER */}
         {/* ================================================== */}
 
@@ -1374,6 +1484,8 @@ const styles = StyleSheet.create({
   },
 
   balanceValue: {
+    fontFamily: Platform.OS === 'android' ? 'Roboto' : 'System',
+    fontVariant: ['tabular-nums'],
     color: '#FFFFFF',
     fontSize: 29,
     fontWeight: '900',
@@ -1403,6 +1515,8 @@ const styles = StyleSheet.create({
   },
 
   portfolioValue: {
+    fontFamily: Platform.OS === 'android' ? 'Roboto' : 'System',
+    fontVariant: ['tabular-nums'],
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '900',
@@ -1919,5 +2033,218 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 5,
     marginBottom: 5,
+  },
+
+  brokerCard: {
+    backgroundColor: '#0F1626',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    marginBottom: 20,
+  },
+  brokerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  brokerAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: '#0EA5E9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  brokerAvatarText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 16,
+  },
+  brokerMainInfo: {
+    flex: 1,
+  },
+  brokerName: {
+    color: '#F8FAFC',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  brokerServer: {
+    color: '#94A3B8',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  brokerMetricsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: '#080E1A',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  brokerMetric: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  brokerMetricDivider: {
+    width: 1,
+    backgroundColor: '#1E293B',
+  },
+  brokerMetricLabel: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  brokerMetricValue: {
+    color: '#E2E8F0',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  sectionSubtitle: {
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  winRateCard: {
+    backgroundColor: '#0F1626',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  winRateLeft: {
+    width: 110,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  winRateGauge: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    borderWidth: 4,
+    borderColor: '#0EA5E9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#080E1A',
+  },
+  winRatePercent: {
+    color: '#38BDF8',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  winRateGaugeLabel: {
+    color: '#64748B',
+    fontSize: 9,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  winRateStats: {
+    flex: 1,
+    paddingLeft: 12,
+  },
+  statRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 3,
+  },
+  statLabel: {
+    color: '#94A3B8',
+    fontSize: 12,
+  },
+  statValueBold: {
+    color: '#F1F5F9',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  marketTable: {
+    backgroundColor: '#0F1626',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    overflow: 'hidden',
+    marginBottom: 24,
+  },
+  marketTableHeader: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#080E1A',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1E293B',
+  },
+  marketTh: {
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  marketTableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#141D2E',
+  },
+  marketTableRowAlt: {
+    backgroundColor: '#0A101D',
+  },
+  tableSymbol: {
+    color: '#F8FAFC',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  tablePairType: {
+    color: '#64748B',
+    fontSize: 10,
+    marginTop: 2,
+  },
+  tablePrice: {
+    color: '#E2E8F0',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  changeBadge: {
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  changeBadgeBullish: {
+    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+  },
+  changeBadgeBearish: {
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+  },
+  changeBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  badgeLive: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(14, 165, 233, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  badgeLiveText: {
+    color: '#38BDF8',
+    fontSize: 11,
+    fontWeight: '700',
+    marginLeft: 5,
+  },
+
+  profitPositive: {
+    color: '#22C55E',
+  },
+  profitNegative: {
+    color: '#EF4444',
+  },
+  metricGreen: {
+    color: '#22C55E',
   },
 });
