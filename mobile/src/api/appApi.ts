@@ -178,3 +178,27 @@ export type AccountInfoResponse = {
 export function getAccountInfo() {
   return apiRequest<AccountInfoResponse>('/api/v1/account');
 }
+
+/**
+ * ============================================================
+ * AUTO TRADING
+ * ============================================================
+ */
+
+export type AutoTradeResponse = {
+  status?: string;
+  auto_trading_enabled: boolean;
+};
+
+export function getAutoTradeStatus() {
+  return apiRequest<AutoTradeResponse>('/api/v1/app/auto-trade');
+}
+
+export function setAutoTradeStatus(enabled: boolean) {
+  return apiRequest<AutoTradeResponse>('/api/v1/app/auto-trade', {
+    method: 'POST',
+    body: JSON.stringify({
+      enabled,
+    }),
+  });
+}
