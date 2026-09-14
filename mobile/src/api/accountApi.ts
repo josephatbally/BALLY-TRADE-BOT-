@@ -1,8 +1,18 @@
-import { apiRequest } from './client';
+﻿import { apiRequest } from './client';
+
+export interface BrokerIdentity {
+  company: string;
+  server: string;
+  login: number | null;
+  leverage: number | null;
+  name: string | null;
+  trade_mode: string;
+}
 
 export interface AccountResponse {
   status: string;
   connected: boolean;
+  broker?: BrokerIdentity;
   balance: number;
   equity: number;
   profit: number;
