@@ -174,6 +174,7 @@ class BallyFlowApplication:
         )
 
         self._running = False
+        self._auto_trading_enabled: bool = getattr(trading_config, "AUTO_TRADING_ENABLED", False)
 
     # -----------------------------------------------------------------
     # APPLICATION STATE
@@ -186,13 +187,6 @@ class BallyFlowApplication:
         """
 
         return self._mode_controller.mode
-
-        self._mode_controller = ModeController(
-            mode=mode
-        )
-
-        self._running = False
-        self._auto_trading_enabled: bool = getattr(trading_config, "AUTO_TRADING_ENABLED", False)
 
     @property
     def running(self) -> bool:
@@ -219,10 +213,6 @@ class BallyFlowApplication:
     # -----------------------------------------------------------------
     # MODE
     # -----------------------------------------------------------------
-
-    @property
-    def auto_trading_enabled(self) -> bool:
-        """Return whether automatic live order execution is enabled."""
         return self._auto_trading_enabled
 
     def set_auto_trading(self, enabled: bool) -> bool:
