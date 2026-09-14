@@ -1,4 +1,6 @@
-﻿import { getHistorySummary, HistorySummaryResponse } from '../api/historyApi';
+﻿import Svg, { Defs, LinearGradient, Stop, Polygon, Polyline, Circle } from 'react-native-svg';
+import { getMarketQuotes, MarketQuote } from '../api/marketsApi';
+import { getHistorySummary, HistorySummaryResponse } from '../api/historyApi';
 import React from 'react';
 import {
   Dimensions,
@@ -287,6 +289,7 @@ export default function DashboardScreen({
   const [accountData, setAccountData] =
     React.useState<AccountResponse | null>(null);
   const [historySummary, setHistorySummary] = React.useState<HistorySummaryResponse | null>(null);
+  const [liveMarkets, setLiveMarkets] = React.useState<MarketQuote[]>([]);
 
   const [positionsData, setPositionsData] =
     React.useState<PositionsResponse | null>(null);
@@ -361,6 +364,14 @@ export default function DashboardScreen({
             const account = await getAccount();
             try {
               const summary = await getHistorySummary(7);
+              try {
+                const quotesRes = await getMarketQuotes();
+                if (mountedRef.current && quotesRes?.quotes) {
+                  setLiveMarkets(quotesRes.quotes);
+                }
+              } catch {
+                // ignore quotes error
+              }
               if (mountedRef.current) {
                 setHistorySummary(summary);
               }
@@ -1257,7 +1268,7 @@ export default function DashboardScreen({
             <Text style={[styles.marketTh, { flex: 1.2, textAlign: 'right' }]}>24H</Text>
           </View>
 
-          {MARKETS.map((market, idx) => (
+          {((liveMarkets && liveMarkets.length > 0) ? liveMarkets : MARKETS).map((market: any, idx: number) => (
             <Pressable
               key={market.symbol}
               onPress={openMarkets}

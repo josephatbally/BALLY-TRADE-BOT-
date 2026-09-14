@@ -431,3 +431,23 @@ export function getSingleMarketAnalysis(
   );
 }
 
+
+
+export interface MarketQuote {
+  symbol: string;
+  price: string;
+  raw_price: number;
+  change: string;
+  change_pct: number;
+  direction: 'BULLISH' | 'BEARISH';
+  points: number[];
+}
+
+export interface MarketQuotesResponse {
+  status: string;
+  quotes: MarketQuote[];
+}
+
+export async function getMarketQuotes(): Promise<MarketQuotesResponse> {
+  return apiRequest<MarketQuotesResponse>('/api/v1/markets/quotes');
+}
