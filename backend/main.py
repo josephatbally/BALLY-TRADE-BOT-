@@ -121,6 +121,7 @@ from backend.trading_engine.market_data.mt5_connection import (
     is_mt5_connected,
     get_symbol_tick,
     get_account_info,
+    mt5_status,
 )
 from backend.trading_engine.engine import (
     analyze_live_market,
@@ -134,6 +135,11 @@ from backend.trading_engine.trade_plan import (
 from backend.trading_engine.execution.execution_pipeline import (
     execute_pipeline,
 )
+
+try:
+    from backend import trading_config
+except ImportError:
+    import trading_config
 
 
 # =====================================================================
@@ -181,6 +187,13 @@ class BallyFlowApplication:
 
         return self._mode_controller.mode
 
+        self._mode_controller = ModeController(
+            mode=mode
+        )
+
+        self._running = False
+        self._auto_trading_enabled: bool = getattr(trading_config, "AUTO_TRADING_ENABLED", False)
+
     @property
     def running(self) -> bool:
         """
@@ -189,9 +202,33 @@ class BallyFlowApplication:
 
         return self._running
 
+    @property
+    def auto_trading_enabled(self) -> bool:
+        """
+        Return whether automatic live order execution is enabled.
+        """
+        return self._auto_trading_enabled
+
+    def set_auto_trading(self, enabled: bool) -> bool:
+        """
+        Enable or disable live MT5 order execution.
+        """
+        self._auto_trading_enabled = bool(enabled)
+        return self._auto_trading_enabled
+
     # -----------------------------------------------------------------
     # MODE
     # -----------------------------------------------------------------
+
+    @property
+    def auto_trading_enabled(self) -> bool:
+        """Return whether automatic live order execution is enabled."""
+        return self._auto_trading_enabled
+
+    def set_auto_trading(self, enabled: bool) -> bool:
+        """Enable or disable live MT5 order execution."""
+        self._auto_trading_enabled = bool(enabled)
+        return self._auto_trading_enabled
 
     def set_mode(
         self,
@@ -273,9 +310,19 @@ class BallyFlowApplication:
             "version": APP_VERSION,
             "running": self._running,
             "mode": self.mode.value,
+            "auto_trading_enabled": self._auto_trading_enabled,
             "technical_enabled": self.is_technical(),
             "hybrid_enabled": self.is_hybrid(),
             "scanner": scanner_info(),
+        }
+    def status(self) -> Dict[str, Any]:
+        return {
+            "application": APP_NAME,
+            "version": APP_VERSION,
+            "running": self.running,
+            "mode": self.mode.value,
+            "auto_trading_enabled": self._auto_trading_enabled,  # Add this line
+            "mt5": mt5_status(),
         }
 
     # -----------------------------------------------------------------
@@ -651,12 +698,12 @@ class BallyFlowApplication:
             )
 
             risk_context = self._get_risk_context()
-
             execution = execute_pipeline(
                 trade_plan=trade_plan,
                 risk_context=risk_context,
-                execute_live=False,
+                execute_live=self._auto_trading_enabled,
             )
+
 
             return {
                 "status": (
@@ -783,7 +830,7 @@ class BallyFlowApplication:
             execution = execute_pipeline(
                 trade_plan=trade_plan,
                 risk_context=risk_context,
-                execute_live=False,
+                execute_live=self._auto_trading_enabled,
             )
 
             return {

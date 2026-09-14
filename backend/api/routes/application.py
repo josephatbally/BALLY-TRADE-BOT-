@@ -113,3 +113,25 @@ def set_mode(request: ModeRequest):
             status_code=400,
             detail=str(exc),
         ) from exc
+class AutoTradeRequest(BaseModel):
+    enabled: bool
+
+@router.get("/auto-trade")
+def get_auto_trade_status():
+    """
+    Return whether automatic trading is currently enabled.
+    """
+    return {
+        "auto_trading_enabled": application.auto_trading_enabled
+    }
+
+@router.post("/auto-trade")
+def toggle_auto_trade(request: AutoTradeRequest):
+    """
+    Turn automatic MT5 trade execution on or off.
+    """
+    enabled = application.set_auto_trading(request.enabled)
+    return {
+        "status": "UPDATED",
+        "auto_trading_enabled": enabled
+    }
