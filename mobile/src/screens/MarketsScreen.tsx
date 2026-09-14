@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import {
   ActivityIndicator,
   RefreshControl,
@@ -340,44 +340,60 @@ export default function MarketsScreen() {
       setError(null);
 
       try {
-       const [
-  marketsResponse,
-  scannerResponse,
-  scanResponse,
-  analysisResponse,
-] = await Promise.all([
-  getMarkets(),
-  getScannerStatus(),
-  scanAllMarkets(),
-  getMarketAnalysis('technical'),
-]);
+               const [
+          marketsResult,
+          scannerResult,
+          scanResult,
+          analysisResult,
+        ] = await Promise.allSettled([
+          getMarkets(),
+          getScannerStatus(),
+          scanAllMarkets(),
+          getMarketAnalysis('technical'),
+        ]);
+
         if (!mountedRef.current) {
           return;
         }
 
-        const backendMarkets = Array.isArray(
-          marketsResponse.markets,
-        )
-          ? marketsResponse.markets
-          : [];
+        // 1. Markets list
+        let resolvedMarkets: Market[] = [];
+        if (marketsResult.status === 'fulfilled') {
+          const backendMarkets = Array.isArray(marketsResult.value.markets)
+            ? marketsResult.value.markets
+            : [];
 
-        const resolvedMarkets: Market[] = backendMarkets
-          .map(symbol =>
-            String(symbol).toUpperCase() as MarketSymbol,
-          )
-          .filter(symbol =>
-            SUPPORTED_MARKETS.includes(symbol),
-          )
-          .map(symbol => ({
+          resolvedMarkets = backendMarkets
+            .map(symbol => String(symbol).toUpperCase() as MarketSymbol)
+            .filter(symbol => SUPPORTED_MARKETS.includes(symbol))
+            .map(symbol => ({
+              symbol,
+              name: MARKET_META[symbol]?.name || symbol,
+              category: MARKET_META[symbol]?.category || 'FOREX',
+            }));
+        } else {
+          resolvedMarkets = SUPPORTED_MARKETS.map(symbol => ({
             symbol,
             name: MARKET_META[symbol].name,
             category: MARKET_META[symbol].category,
           }));
-
+        }
         setMarkets(resolvedMarkets);
-setScanner(scannerResponse);
-setScan(scanResponse);
-setAnalysis(analysisResponse);
+
+        // 2. Scanner status
+        if (scannerResult.status === 'fulfilled') {
+          setScanner(scannerResult.value);
+        }
+
+        // 3. Scan payload (candles)
+        if (scanResult.status === 'fulfilled') {
+          setScan(scanResult.value);
+        }
+
+        // 4. Analysis
+        if (analysisResult.status === 'fulfilled') {
+          setAnalysis(analysisResult.value);
+        }
       } catch (requestError) {
         if (!mountedRef.current) {
           return;
@@ -578,7 +594,7 @@ const executionReady =
                 Market Data Readiness
               </Text>
               <Text style={styles.cardSubtitle}>
-                H4 → H1 → M15
+                H4 ? H1 ? M15
               </Text>
             </View>
 
@@ -754,11 +770,11 @@ const direction =
     </Text>
 
     <Text style={styles.analysisDetail}>
-      {direction ?? '—'}
+      {direction ?? '�'}
       {'  '}
       {confidence !== null
         ? `${confidence.toFixed(1)}%`
-        : '—'}
+        : '�'}
     </Text>
   </View>
 
@@ -790,8 +806,8 @@ const direction =
           </Text>
           <Text style={styles.noteText}>
             BALLY FLOW receives market data from the
-            backend in the authoritative order H4 →
-            H1 → M15. Trading intelligence remains
+            backend in the authoritative order H4 ?
+            H1 ? M15. Trading intelligence remains
             on the backend.
           </Text>
         </View>
