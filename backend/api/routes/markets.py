@@ -472,6 +472,8 @@ def get_market_quotes() -> dict:
                 "symbol": sym,
                 "price": price_str,
                 "raw_price": price,
+                "change": f"{'+' if change_pct >= 0 else ''}{change_pct:.2f}%",
+                "change_pct": change_pct,
                 "change_percent": f"{'+' if change_pct >= 0 else ''}{change_pct:.2f}%",
                 "raw_change": change_pct,
                 "direction": direction,

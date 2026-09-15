@@ -176,10 +176,10 @@ export default function FlowMarketSelectionScreen({
                 allowFontScaling={false}
                 style={[
                   styles.selectedChangeText,
-                  { color: (activeQuote?.change_pct || 0) >= 0 ? '#35E68A' : '#EF4444' },
+                  { color: ((activeQuote?.change_pct ?? (activeQuote as any)?.raw_change ?? 0) || 0) >= 0 ? '#35E68A' : '#EF4444' },
                 ]}
               >
-                {activeQuote?.change_pct != null
+                {(activeQuote?.change_pct ?? (activeQuote as any)?.raw_change ?? 0) != null
                   ? `${activeQuote.change_pct >= 0 ? '+' : ''}${activeQuote.change_pct.toFixed(2)}%`
                   : '0.00%'}
               </Text>
@@ -272,7 +272,7 @@ export default function FlowMarketSelectionScreen({
                       { color: isUp ? '#35E68A' : '#EF4444' },
                     ]}
                   >
-                    {q?.change_pct != null ? `${isUp ? '+' : ''}${q.change_pct.toFixed(2)}%` : '0.00%'}
+                    {`${(q?.change_pct ?? (q as any)?.raw_change ?? 0) >= 0 ? "+" : ""}${Number(q?.change_pct ?? (q as any)?.raw_change ?? 0).toFixed(2)}%`}
                   </Text>
                 </View>
 

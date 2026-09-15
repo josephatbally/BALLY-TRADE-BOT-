@@ -1,4 +1,9 @@
-﻿import React, { useEffect, useState, useCallback } from 'react';
+"""
+Wire live quote polling and dynamic POC/VAH/VAL into FlowConfluenceScreen.tsx.
+"""
+import os
+
+confluence_code = '''import React, { useEffect, useState, useCallback } from 'react';
 import {
   Pressable,
   RefreshControl,
@@ -65,12 +70,12 @@ export default function FlowConfluenceScreen({ navigation, route }: any) {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="light-content" translucent />
 
       {/* HEADER */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top + 8, 24) }]}>
         <Pressable onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Text allowFontScaling={false} style={styles.backButtonText}>â†</Text>
+          <Text allowFontScaling={false} style={styles.backButtonText}>←</Text>
         </Pressable>
 
         <View style={styles.headerMiddle}>
@@ -106,7 +111,7 @@ export default function FlowConfluenceScreen({ navigation, route }: any) {
             </View>
             <View style={[styles.directionBadge, { backgroundColor: isBullish ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)' }]}>
               <Text allowFontScaling={false} style={[styles.directionBadgeText, { color: isBullish ? '#10B981' : '#EF4444' }]}>
-                {isBullish ? 'â–² BULLISH CONFLUENCE' : 'â–¼ BEARISH CONFLUENCE'}
+                {isBullish ? '▲ BULLISH CONFLUENCE' : '▼ BEARISH CONFLUENCE'}
               </Text>
             </View>
           </View>
@@ -192,7 +197,7 @@ export default function FlowConfluenceScreen({ navigation, route }: any) {
           onPress={() => navigation.navigate('FlowConfidence', { symbol })}
           style={styles.continueButton}
         >
-          <Text allowFontScaling={false} style={styles.continueButtonText}>CONTINUE TO CONFIDENCE (04) â†’</Text>
+          <Text allowFontScaling={false} style={styles.continueButtonText}>CONTINUE TO CONFIDENCE (04) →</Text>
         </Pressable>
       </ScrollView>
     </View>
@@ -285,3 +290,9 @@ const styles = StyleSheet.create({
   },
   continueButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800', letterSpacing: 1 },
 });
+'''
+
+path = os.path.join("src", "screens", "flow", "FlowConfluenceScreen.tsx")
+with open(path, "w", encoding="utf-8") as f:
+    f.write(confluence_code)
+print("[OK] Successfully updated src/screens/flow/FlowConfluenceScreen.tsx with live data")
