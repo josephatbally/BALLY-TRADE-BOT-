@@ -1,4 +1,4 @@
-﻿
+
 """
 BALLY FLOW API - Market Routes
 """
@@ -357,9 +357,18 @@ def get_market_quotes() -> dict:
     Return real-time prices, 24h change %, and sparkline points for the 6 core markets.
     """
     import MetaTrader5 as mt5
-    from backend.trading_engine.market_data.mt5_connection import get_mt5_connection
 
-    conn = get_mt5_connection()
+    # Safe symbol resolver fallback
+    def _resolve(sym: str) -> str:
+        try:
+            from backend.trading_engine.market_data.mt5_connection import symbol_info
+            info = symbol_info(sym)
+            if info and hasattr(info, "name"):
+                return info.name
+        except Exception:
+            pass
+        return sym
+
     quotes = []
 
     for sym in MARKETS:
@@ -369,7 +378,9 @@ def get_market_quotes() -> dict:
         points = []
 
         try:
-            actual = conn.resolve_symbol(sym) or sym
+            actual = _resolve(sym)
+            mt5.symbol_select(actual, True)
+            
             tick = mt5.symbol_info_tick(actual)
             if tick is not None:
                 price = float(tick.bid if tick.bid > 0 else tick.ask)
@@ -386,34 +397,47 @@ def get_market_quotes() -> dict:
                     change_pct = round(((last_close - first_close) / first_close) * 100.0, 2)
                 direction = "BULLISH" if change_pct >= 0 else "BEARISH"
 
-                # Normalize closes into a 10-60 coordinate scale for sparkline
+                # Normalize closes into a 10-60 coordinate scale for SVG sparkline
                 min_c = min(closes)
                 max_c = max(closes)
-                spread = max_c - min_c if max_c > min_c else 1.0
-                points = [round(((c - min_c) / spread) * 45 + 10, 1) for c in closes]
+                rng = (max_c - min_c) if (max_c - min_c) > 0 else 1.0
+                for c in closes:
+                    norm_val = round(10.0 + ((c - min_c) / rng) * 50.0, 1)
+                    points.append(norm_val)
+
+            # Fallback points if MT5 market is closed or rates empty
+            if not points:
+                points = [20.0, 25.0, 22.0, 30.0, 28.0, 35.0, 40.0, 38.0, 45.0, 42.0, 48.0, 50.0]
+
+            # Format price display nicely
+            if price > 0:
+                if price >= 1000:
+                    price_str = f"{price:,.2f}"
+                elif price >= 1:
+                    price_str = f"{price:.4f}"
+                else:
+                    price_str = f"{price:.5f}"
             else:
-                points = [30, 32, 31, 35, 34, 38, 36, 42, 40, 45, 43, 48]
-        except Exception:
-            points = [30, 32, 31, 35, 34, 38, 36, 42, 40, 45, 43, 48]
+                price_str = "�"
 
-        # Format price with appropriate decimals
-        if "JPY" in sym:
-            fmt_price = f"{price:.3f}" if price > 0 else "—"
-        elif "XAU" in sym or "XAG" in sym or "NAS" in sym:
-            fmt_price = f"{price:.2f}" if price > 0 else "—"
-        else:
-            fmt_price = f"{price:.5f}" if price > 0 else "—"
+            quotes.append({
+                "symbol": sym,
+                "price": price_str,
+                "raw_price": price,
+                "change_percent": f"{'+' if change_pct >= 0 else ''}{change_pct:.2f}%",
+                "raw_change": change_pct,
+                "direction": direction,
+                "points": points,
+            })
+        except Exception as e:
+            quotes.append({
+                "symbol": sym,
+                "price": "�",
+                "raw_price": 0.0,
+                "change_percent": "+0.00%",
+                "raw_change": 0.0,
+                "direction": "BULLISH",
+                "points": [20.0, 25.0, 30.0, 28.0, 35.0, 40.0, 45.0, 50.0],
+            })
 
-        change_str = f"{'+' if change_pct >= 0 else ''}{change_pct:.2f}%"
-
-        quotes.append({
-            "symbol": sym,
-            "price": fmt_price,
-            "raw_price": price,
-            "change": change_str,
-            "change_pct": change_pct,
-            "direction": direction,
-            "points": points,
-        })
-
-    return {"status": "READY", "quotes": quotes}
+    return {"status": "ok", "quotes": quotes}
