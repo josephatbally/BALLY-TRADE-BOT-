@@ -1,4 +1,4 @@
-import React from 'react';
+ï»¿import React from 'react';
 import {
   Alert,
   Pressable,
@@ -14,14 +14,6 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
 import {RootStackParamList} from '../navigation/navigationTypes';
 import {BRANDING} from '../config/branding';
-import {
-  getHealth,
-  getApplicationStatus,
-  getAutoTradeStatus,
-  setAutoTradeStatus,
-  startApplication,
-  stopApplication,
-} from '../api/appApi';
 
 type Props = NativeStackScreenProps<
   RootStackParamList,
@@ -123,138 +115,114 @@ export default function BotControlScreen({
    * The backend remains authoritative for all trading permissions.
    */
 
-  const [loading, setLoading] = React.useState(true);
-  const [backendConnected, setBackendConnected] = React.useState(false);
-  const [backendAuthorized, setBackendAuthorized] = React.useState(false);
-  const [botRunning, setBotRunning] = React.useState(false);
-  const [autoTradingEnabled, setAutoTradingEnabled] = React.useState(false);
-  const [updating, setUpdating] = React.useState(false);
+  const [botRequested, setBotRequested] =
+    React.useState(false);
 
-  // Derived flags for UI status indicators
-  const executionEnabled = botRunning;
-  const liveTradingEnabled = autoTradingEnabled;
-  const botRequested = updating;
-  const autoExecutionRequested = updating;
+  const [autoExecutionRequested, setAutoExecutionRequested] =
+    React.useState(false);
 
-  const loadStatus = React.useCallback(async () => {
-    try {
-      const [health, appStatus, autoTrade] = await Promise.all([
-        getHealth().catch(() => null),
-        getApplicationStatus().catch(() => null),
-        getAutoTradeStatus().catch(() => null),
-      ]);
+  /*
+   * These are intentionally false until real authenticated
+   * backend APIs are connected.
+   */
+  const backendConnected = false;
+  const backendAuthorized = false;
+  const executionEnabled = false;
+  const liveTradingEnabled = false;
 
-      const isConnected = !!health;
-      setBackendConnected(isConnected);
-      setBackendAuthorized(isConnected);
-
-      if (appStatus) {
-        setBotRunning(Boolean(appStatus.running));
-      }
-
-      if (autoTrade && typeof autoTrade.auto_trading_enabled === 'boolean') {
-        setAutoTradingEnabled(autoTrade.auto_trading_enabled);
-      }
-    } catch {
-      setBackendConnected(false);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  React.useEffect(() => {
-    loadStatus();
-  }, [loadStatus]);
-
-  const botStatus: BotStatus = !backendConnected
-    ? 'OFFLINE'
-    : !backendAuthorized
-    ? 'DISABLED'
-    : autoTradingEnabled && botRunning
-    ? 'ACTIVE'
-    : 'AUTHORIZED';
+  const botStatus: BotStatus =
+    !backendConnected
+      ? 'OFFLINE'
+      : !backendAuthorized
+        ? 'DISABLED'
+        : executionEnabled
+          ? 'ACTIVE'
+          : 'AUTHORIZED';
 
   const displayName =
     route.params?.displayName ||
     route.params?.firstName ||
     'Trader';
 
-  const handleBotToggle = async (value: boolean) => {
+  const handleBotToggle = (value: boolean) => {
+    if (!value) {
+      setBotRequested(false);
+      setAutoExecutionRequested(false);
+      return;
+    }
+
     if (!backendConnected) {
       Alert.alert(
         'Backend Offline',
-        'Cannot toggle bot because the FastAPI backend is not connected.',
+        'BALLY FLOW cannot request bot activation because the authenticated backend is not connected.',
       );
       return;
     }
 
-    setUpdating(true);
-    try {
-      if (value) {
-        await startApplication();
-        setBotRunning(true);
-      } else {
-        await stopApplication();
-        setBotRunning(false);
-        if (autoTradingEnabled) {
-          await setAutoTradeStatus(false).catch(() => null);
-          setAutoTradingEnabled(false);
-        }
-      }
-    } catch (err: any) {
-      Alert.alert('Error', err?.message || 'Failed to update bot state');
-    } finally {
-      setUpdating(false);
+    if (!backendAuthorized) {
+      Alert.alert(
+        'Authorization Required',
+        'Bot activation must be explicitly authorized by the authenticated BALLY TRADES BOT backend.',
+      );
+      return;
     }
+
+    Alert.alert(
+      'Request Bot Activation',
+      'This requests bot activation from the backend. Live trading remains disabled unless every backend risk and execution safety control explicitly authorizes execution.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Request Activation',
+          onPress: () => {
+            setBotRequested(true);
+          },
+        },
+      ],
+    );
   };
 
-  const handleAutoExecutionToggle = async (value: boolean) => {
-    if (!backendConnected) {
+  const handleAutoExecutionToggle = (value: boolean) => {
+    if (!value) {
+      setAutoExecutionRequested(false);
+      return;
+    }
+
+    if (!botRequested) {
       Alert.alert(
-        'Backend Offline',
-        'Cannot toggle execution because the backend is not connected.',
+        'Bot Not Requested',
+        'Request bot activation before requesting automated execution.',
       );
       return;
     }
 
-    if (value) {
+    if (!backendAuthorized) {
       Alert.alert(
-        'Enable Live Auto-Trading',
-        'This allows BALLY FLOW to send live market orders directly to your MetaTrader 5 account when signals pass risk checks.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Enable Live Trading',
-            style: 'destructive',
-            onPress: async () => {
-              setUpdating(true);
-              try {
-                const res = await setAutoTradeStatus(true);
-                setAutoTradingEnabled(res.auto_trading_enabled);
-                if (!botRunning) {
-                  await startApplication().catch(() => null);
-                  setBotRunning(true);
-                }
-              } catch (err: any) {
-                Alert.alert('Error', err?.message || 'Failed to enable auto-trading');
-              } finally {
-                setUpdating(false);
-              }
-            },
-          },
-        ],
+        'Backend Authorization Required',
+        'Automated execution cannot be enabled from the mobile application without explicit backend authorization.',
       );
-    } else {
-      setUpdating(true);
-      try {
-        const res = await setAutoTradeStatus(false);
-        setAutoTradingEnabled(res.auto_trading_enabled);
-      } catch (err: any) {
-        Alert.alert('Error', err?.message || 'Failed to disable auto-trading');
-      } finally {
-        setUpdating(false);
-      }
+      return;
     }
+
+    Alert.alert(
+      'Execution Request',
+      'This does not enable live trading directly. Final execution permission must be granted by the backend after all safety checks pass.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Request Permission',
+          onPress: () => {
+            setAutoExecutionRequested(true);
+          },
+        },
+      ],
+    );
   };
 
   const getStatusTone = (): StatusTone => {
@@ -330,7 +298,7 @@ export default function BotControlScreen({
             accessibilityLabel="Close bot control"
             onPress={() => navigation.goBack()}
             style={styles.closeButton}>
-            <Text style={styles.closeButtonText}>×</Text>
+            <Text style={styles.closeButtonText}>Ã—</Text>
           </Pressable>
         </View>
 
@@ -486,7 +454,7 @@ export default function BotControlScreen({
 
         <View style={styles.card}>
           <ControlRow
-            icon="?"
+            icon="â—ˆ"
             title="Bot Activation"
             subtitle={
               botRequested
@@ -496,14 +464,17 @@ export default function BotControlScreen({
             right={
               <Switch
                 accessibilityLabel="Bot activation"
-                value={botRunning}
-                disabled={!backendConnected || updating}
+                value={botRequested}
                 onValueChange={handleBotToggle}
                 trackColor={{
                   false: '#273044',
                   true: '#3449A0',
                 }}
-                thumbColor={botRunning ? '#7083FF' : '#8995B1'}
+                thumbColor={
+                  botRequested
+                    ? '#7083FF'
+                    : '#8995B1'
+                }
               />
             }
           />
@@ -511,7 +482,7 @@ export default function BotControlScreen({
           <View style={styles.divider} />
 
           <ControlRow
-            icon="?"
+            icon="ÏŸ"
             title="Automated Execution"
             subtitle={
               autoExecutionRequested
@@ -521,14 +492,17 @@ export default function BotControlScreen({
             right={
               <Switch
                 accessibilityLabel="Automated execution"
-                value={autoTradingEnabled}
-                disabled={!backendConnected || updating}
+                value={autoExecutionRequested}
                 onValueChange={handleAutoExecutionToggle}
                 trackColor={{
                   false: '#273044',
                   true: '#3449A0',
                 }}
-                thumbColor={autoTradingEnabled ? '#FFFFFF' : '#8995B1'}
+                thumbColor={
+                  autoExecutionRequested
+                    ? '#7083FF'
+                    : '#8995B1'
+                }
               />
             }
           />
@@ -561,23 +535,23 @@ export default function BotControlScreen({
 
           <View style={styles.safetyList}>
             <Text style={styles.safetyItem}>
-              • Backend authentication required
+              â€¢ Backend authentication required
             </Text>
 
             <Text style={styles.safetyItem}>
-              • Risk validation required
+              â€¢ Risk validation required
             </Text>
 
             <Text style={styles.safetyItem}>
-              • Broker and margin validation required
+              â€¢ Broker and margin validation required
             </Text>
 
             <Text style={styles.safetyItem}>
-              • MT5 execution safety controls required
+              â€¢ MT5 execution safety controls required
             </Text>
 
             <Text style={styles.safetyItem}>
-              • Explicit backend authorization required
+              â€¢ Explicit backend authorization required
             </Text>
           </View>
         </View>

@@ -68,42 +68,42 @@ const MARKETS: Market[] = [
     symbol: 'XAUUSD',
     direction: 'BULLISH',
     change: '+0.42%',
-    price: '—',
+    price: '�',
     points: [38, 41, 39, 46, 44, 51, 49, 57, 54, 63],
   },
   {
     symbol: 'EURUSD',
     direction: 'BEARISH',
     change: '-0.18%',
-    price: '—',
+    price: '�',
     points: [62, 59, 61, 56, 58, 51, 49, 46, 44, 42],
   },
   {
     symbol: 'GBPUSD',
     direction: 'BULLISH',
     change: '+0.21%',
-    price: '—',
+    price: '�',
     points: [35, 38, 37, 43, 41, 48, 46, 52, 55, 59],
   },
   {
     symbol: 'USDJPY',
     direction: 'BEARISH',
     change: '-0.11%',
-    price: '—',
+    price: '�',
     points: [64, 61, 63, 57, 59, 53, 51, 47, 45, 42],
   },
   {
     symbol: 'XAGUSD',
     direction: 'NEUTRAL',
     change: '0.01%',
-    price: '—',
+    price: '�',
     points: [49, 51, 50, 52, 49, 51, 50, 51, 49, 50],
   },
   {
     symbol: 'NASDAQ',
     direction: 'BULLISH',
     change: '+0.35%',
-    price: '—',
+    price: '�',
     points: [34, 38, 42, 40, 47, 45, 51, 55, 58, 64],
   },
 ];
@@ -119,151 +119,48 @@ function MarketLineChart({
   direction,
 }: {
   points: number[];
-  direction: MarketDirection;
+  direction: 'BULLISH' | 'BEARISH';
 }) {
-  const chartWidth = Math.max(SCREEN_WIDTH - 215, 105);
-  const chartHeight = 60;
-
-  if (!points.length) {
+  if (!points || !points.length) {
     return (
-      <View style={styles.emptyChart}>
-        <Text style={styles.emptyChartText}>NO DATA</Text>
+      <View style={{ width: 80, height: 30, justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ fontSize: 10, color: '#64748B' }}>--</Text>
       </View>
     );
   }
 
+  const isBull = direction === 'BULLISH';
+  const strokeCol = isBull ? '#10B981' : '#EF4444';
+  const fillCol = isBull ? 'rgba(16, 185, 129, 0.20)' : 'rgba(239, 68, 68, 0.20)';
+
+  const chartW = 76;
+  const chartH = 26;
   const min = Math.min(...points);
   const max = Math.max(...points);
   const range = max - min || 1;
 
-  const coordinates = points.map((point, index) => {
-    const x =
-      points.length === 1
-        ? chartWidth / 2
-        : (index / (points.length - 1)) * chartWidth;
-
-    const y =
-      chartHeight -
-      ((point - min) / range) * (chartHeight - 8) -
-      4;
-
-    return {x, y};
+  const step = chartW / (points.length - 1);
+  const coords = points.map((p, i) => {
+    const x = Math.round(i * step);
+    const y = Math.round(chartH - 4 - ((p - min) / range) * (chartH - 8));
+    return `${x},${y}`;
   });
 
-  const lineColor =
-    direction === 'BULLISH'
-      ? '#35E68A'
-      : direction === 'BEARISH'
-      ? '#FF7185'
-      : '#8995B1';
+  const polylineCoords = coords.join(' ');
+  const lastX = chartW;
+  const lastY = Math.round(chartH - 4 - ((points[points.length - 1] - min) / range) * (chartH - 8));
+  const polygonCoords = `0,${chartH} ${polylineCoords} ${lastX},${chartH}`;
 
   return (
-    <View
-      style={[
-        styles.lineChart,
-        {
-          width: chartWidth,
-          height: chartHeight,
-        },
-      ]}>
-      {/* Grid */}
-      <View style={[styles.chartGridLine, {top: 15}]} />
-      <View style={[styles.chartGridLine, {top: 30}]} />
-      <View style={[styles.chartGridLine, {top: 45}]} />
-
-      {/* Connected line segments */}
-      {coordinates.slice(1).map((point, index) => {
-        const previous = coordinates[index];
-
-        const dx = point.x - previous.x;
-        const dy = point.y - previous.y;
-
-        const length = Math.sqrt(dx * dx + dy * dy);
-        const angle = Math.atan2(dy, dx);
-
-        return (
-          <View
-            key={`segment-${index}`}
-            style={{
-              position: 'absolute',
-              left: previous.x,
-              top: previous.y + dy / 2,
-              width: length,
-              height: 2,
-              backgroundColor: lineColor,
-              transform: [
-                {
-                  rotate: `${angle}rad`,
-                },
-              ],
-            }}
-          />
-        );
-      })}
-
-      {/* Price points */}
-      {coordinates.map((point, index) => (
-        <View
-          key={`point-${index}`}
-          style={{
-            position: 'absolute',
-            left: point.x - 2.5,
-            top: point.y - 2.5,
-            width: 5,
-            height: 5,
-            borderRadius: 3,
-            backgroundColor: lineColor,
-          }}
-        />
-      ))}
+    <View style={{ width: 80, height: 30, justifyContent: 'center', alignItems: 'center' }}>
+      <Svg width={chartW} height={chartH} viewBox={`0 0 ${chartW} ${chartH}`}>
+        <Polygon points={polygonCoords} fill={fillCol} />
+        <Polyline points={polylineCoords} fill="none" stroke={strokeCol} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+        <Circle cx={lastX} cy={lastY} r={3} fill={strokeCol} />
+      </Svg>
     </View>
   );
 }
-
-/*
- * ============================================================
- * DIRECTION BADGE
- * ============================================================
- */
-
-function DirectionBadge({
-  direction,
-}: {
-  direction: MarketDirection;
-}) {
-  const label =
-    direction === 'BULLISH'
-      ? '? BULLISH'
-      : direction === 'BEARISH'
-      ? '? BEARISH'
-      : 'NEUTRAL';
-
-  return (
-    <View
-      style={[
-        styles.directionBadge,
-        direction === 'BULLISH' && styles.bullishBadge,
-        direction === 'BEARISH' && styles.bearishBadge,
-        direction === 'NEUTRAL' && styles.neutralBadge,
-      ]}>
-      <Text
-        style={[
-          styles.directionText,
-          direction === 'BULLISH' && styles.bullishText,
-          direction === 'BEARISH' && styles.bearishText,
-          direction === 'NEUTRAL' && styles.neutralText,
-        ]}>
-        {label}
-      </Text>
-    </View>
-  );
-}
-
-/*
- * ============================================================
- * DASHBOARD
- * ============================================================
- */
 
 export default function DashboardScreen({
   navigation,
@@ -766,51 +663,34 @@ export default function DashboardScreen({
 
           <View style={styles.portfolioGrid}>
             <View style={styles.portfolioMetric}>
-              <Text style={styles.portfolioLabel}>
-                P&L
+              <Text style={styles.portfolioLabel}>P&L</Text>
+              <Text allowFontScaling={false} style={[styles.portfolioValue, { color: (accountData?.profit ?? 0) < 0 ? '#EF4444' : '#10B981', fontWeight: '700' }]}>
+                {accountData
+                  ? `${accountData.currency} ${accountData.profit >= 0 ? '+' : ''}${accountData.profit.toFixed(2)}`
+                  : '0.00'}
               </Text>
-
-              <Text style={styles.portfolioValue}>
-        {accountData
-          ? `${accountData.currency} ${accountData.profit.toFixed(2)}`
-          : '0.00'}
-      </Text>
             </View>
-
             <View style={styles.portfolioMetric}>
-              <Text style={styles.portfolioLabel}>
-                EQUITY
+              <Text style={styles.portfolioLabel}>EQUITY</Text>
+              <Text allowFontScaling={false} style={[styles.portfolioValue, { color: '#10B981', fontWeight: '700' }]}>
+                {accountData
+                  ? `${accountData.currency} ${accountData.equity.toFixed(2)}`
+                  : '0.00'}
               </Text>
-
-              <Text style={styles.portfolioValue}>
-        {accountData
-          ? `${accountData.currency} ${accountData.equity.toFixed(2)}`
-          : '0.00'}
-      </Text>
             </View>
-
             <View style={styles.portfolioMetric}>
-              <Text style={styles.portfolioLabel}>
-                MARGIN
+              <Text style={styles.portfolioLabel}>MARGIN</Text>
+              <Text allowFontScaling={false} style={[styles.portfolioValue, { color: '#10B981', fontWeight: '700' }]}>
+                {accountData
+                  ? `${accountData.currency} ${accountData.margin.toFixed(2)}`
+                  : '0.00'}
               </Text>
-
-              <Text style={styles.portfolioValue}>
-        {accountData
-          ? `${accountData.currency} ${accountData.margin.toFixed(2)}`
-          : '0.00'}
-      </Text>
             </View>
-
             <View style={styles.portfolioMetric}>
-              <Text style={styles.portfolioLabel}>
-                OPEN TRADES
+              <Text style={styles.portfolioLabel}>OPEN TRADES</Text>
+              <Text allowFontScaling={false} style={[styles.portfolioValue, { color: '#10B981', fontWeight: '700' }]}>
+                {positionsData?.positions ? positionsData.positions.length : (accountData?.open_trades ?? 0)}
               </Text>
-
-              <Text style={styles.portfolioValue}>
-        {positionsData
-          ? positionsData.count.toString()
-          : '0.00'}
-      </Text>
             </View>
           </View>
         </View>
@@ -1078,7 +958,7 @@ export default function DashboardScreen({
 
           <Pressable onPress={openLiveSignals}>
             <Text style={styles.viewAll}>
-              VIEW ALL ?
+              VIEW ALL 
             </Text>
           </Pressable>
         </View>
@@ -1182,7 +1062,7 @@ export default function DashboardScreen({
             <View style={styles.brokerMetric}>
               <Text style={styles.brokerMetricLabel}>LOGIN ID</Text>
               <Text style={styles.brokerMetricValue}>
-                {accountData?.broker?.login ? accountData.broker.login.toString() : '—'}
+                {accountData?.broker?.login ? accountData.broker.login.toString() : '�'}
               </Text>
             </View>
             <View style={styles.brokerMetricDivider} />
@@ -1256,7 +1136,7 @@ export default function DashboardScreen({
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>LIVE MARKETS (6 PAIRS)</Text>
           <Pressable onPress={openMarkets}>
-            <Text style={styles.viewAll}>SCANNER →</Text>
+            <Text style={styles.viewAll}>SCANNER ?</Text>
           </Pressable>
         </View>
 
@@ -1277,33 +1157,34 @@ export default function DashboardScreen({
                 idx % 2 === 1 && styles.marketTableRowAlt,
                 pressed && styles.quickCardPressed,
               ]}>
-              <View style={{ flex: 1.5 }}>
-                <Text style={styles.tableSymbol}>{market.symbol}</Text>
-                <Text style={styles.tablePairType}>
-                  {market.symbol.includes('XAU') || market.symbol.includes('XAG') ? 'COMMODITY' : market.symbol.includes('NAS') ? 'INDEX' : 'FOREX'}
+              <View style={{ width: 85 }}>
+                <Text allowFontScaling={false} style={styles.tableSymbol}>{market.symbol}</Text>
+                <Text allowFontScaling={false} style={styles.tablePairType}>
+                  {market.symbol.includes('XAU') || market.symbol.includes('XAG') ? 'COMMODITY' : (market.symbol.includes('NAS') || market.symbol.includes('TEC') || market.symbol.includes('100')) ? 'INDEX' : 'FOREX'}
                 </Text>
               </View>
-
-              <View style={{ flex: 1.5, alignItems: 'flex-end' }}>
-                <Text style={styles.tablePrice}>{market.price !== '—' ? market.price : 'LIVE'}</Text>
+              <View style={{ width: 90, paddingRight: 6, alignItems: 'flex-start', justifyContent: 'center' }}>
+                <Text allowFontScaling={false} style={[styles.tablePrice, { fontVariant: ['tabular-nums'] }]}>
+                  {market.price && market.price !== '�' && market.price !== '--' ? market.price : 'LIVE'}
+                </Text>
               </View>
-
-              <View style={{ flex: 1.5, alignItems: 'center' }}>
+              <View style={{ width: 80, alignItems: 'center', justifyContent: 'center' }}>
                 <MarketLineChart points={market.points} direction={market.direction} />
               </View>
-
-              <View style={{ flex: 1.2, alignItems: 'flex-end' }}>
+              <View style={{ flex: 1, alignItems: 'flex-end', justifyContent: 'center' }}>
                 <View
                   style={[
                     styles.changeBadge,
                     market.direction === 'BULLISH' ? styles.changeBadgeBullish : styles.changeBadgeBearish,
                   ]}>
                   <Text
+                    allowFontScaling={false}
                     style={[
                       styles.changeBadgeText,
                       market.direction === 'BULLISH' ? styles.bullishText : styles.bearishText,
+                      { fontVariant: ['tabular-nums'] },
                     ]}>
-                    {market.change}
+                    {market.change_percent || market.change || '+0.00%'}
                   </Text>
                 </View>
               </View>

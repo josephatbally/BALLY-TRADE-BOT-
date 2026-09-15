@@ -1,3 +1,6 @@
+import time
+_analysis_cache = {}
+_CACHE_TTL = 30  # seconds
 
 """
 BALLY FLOW API - Market Routes
@@ -27,6 +30,47 @@ from backend.trading_engine.hybrid.hybrid_engine import (
 
 
 router = APIRouter()
+
+# In-memory analysis cache: calculations take ~25s for 6 symbols,
+# so cache results for 30s to keep mobile fast and prevent timeouts.
+import time as _time
+
+_ANALYSIS_CACHE = {}
+_ANALYSIS_TTL = 30.0
+
+def _get_cached_analysis(key):
+    entry = _ANALYSIS_CACHE.get(key)
+    if not entry:
+        return None
+    created, payload = entry
+    if _time.time() - created > _ANALYSIS_TTL:
+        return None
+    return payload
+
+def _store_analysis_cache(key, payload):
+    _ANALYSIS_CACHE[key] = (_time.time(), payload)
+
+_orig_analyze_markets = analyze_markets
+
+def analyze_markets(markets=None):
+    cached = _get_cached_analysis("technical")
+    if cached is not None:
+        return cached
+    result = _orig_analyze_markets(markets=markets)
+    _store_analysis_cache("technical", result)
+    return result
+
+_orig_analyze_hybrid_market = analyze_hybrid_market
+
+def analyze_hybrid_market(symbol=None):
+    key = f"hybrid:{symbol}"
+    cached = _get_cached_analysis(key)
+    if cached is not None:
+        return cached
+    result = _orig_analyze_hybrid_market(symbol=symbol)
+    _store_analysis_cache(key, result)
+    return result
+
 
 
 # =====================================================================
@@ -358,15 +402,25 @@ def get_market_quotes() -> dict:
     """
     import MetaTrader5 as mt5
 
-    # Safe symbol resolver fallback
+    # Candidate names for broker symbol variations
+    SYMBOL_ALIASES = {
+        "NASDAQ": ["NASDAQ", "USTEC", "NAS100", "US100", "NDX", "USTECH", "US100m", "NAS100m", "USTECm"],
+        "XAUUSD": ["XAUUSD", "GOLD", "XAUUSDm", "GOLDm"],
+        "XAGUSD": ["XAGUSD", "SILVER", "XAGUSDm", "SILVERm"],
+        "EURUSD": ["EURUSD", "EURUSDm", "EURUSD."],
+        "GBPUSD": ["GBPUSD", "GBPUSDm", "GBPUSD."],
+        "USDJPY": ["USDJPY", "USDJPYm", "USDJPY."],
+    }
+
     def _resolve(sym: str) -> str:
-        try:
-            from backend.trading_engine.market_data.mt5_connection import symbol_info
-            info = symbol_info(sym)
-            if info and hasattr(info, "name"):
-                return info.name
-        except Exception:
-            pass
+        candidates = SYMBOL_ALIASES.get(sym, [sym])
+        for c in candidates:
+            try:
+                info = mt5.symbol_info(c)
+                if info is not None:
+                    return c
+            except Exception:
+                pass
         return sym
 
     quotes = []
@@ -380,12 +434,11 @@ def get_market_quotes() -> dict:
         try:
             actual = _resolve(sym)
             mt5.symbol_select(actual, True)
-            
+
             tick = mt5.symbol_info_tick(actual)
             if tick is not None:
                 price = float(tick.bid if tick.bid > 0 else tick.ask)
 
-            # Get recent 12 closes (M15) for TradingView sparkline
             rates = mt5.copy_rates_from_pos(actual, mt5.TIMEFRAME_M15, 0, 12)
             if rates is not None and len(rates) > 0:
                 closes = [float(r['close']) for r in rates]
@@ -397,19 +450,16 @@ def get_market_quotes() -> dict:
                     change_pct = round(((last_close - first_close) / first_close) * 100.0, 2)
                 direction = "BULLISH" if change_pct >= 0 else "BEARISH"
 
-                # Normalize closes into a 10-60 coordinate scale for SVG sparkline
                 min_c = min(closes)
                 max_c = max(closes)
                 rng = (max_c - min_c) if (max_c - min_c) > 0 else 1.0
                 for c in closes:
-                    norm_val = round(10.0 + ((c - min_c) / rng) * 50.0, 1)
+                    norm_val = round(6.0 + ((c - min_c) / rng) * 24.0, 1)
                     points.append(norm_val)
 
-            # Fallback points if MT5 market is closed or rates empty
             if not points:
-                points = [20.0, 25.0, 22.0, 30.0, 28.0, 35.0, 40.0, 38.0, 45.0, 42.0, 48.0, 50.0]
+                points = [10.0, 12.0, 11.0, 15.0, 14.0, 18.0, 20.0, 19.0, 23.0, 22.0, 25.0, 26.0]
 
-            # Format price display nicely
             if price > 0:
                 if price >= 1000:
                     price_str = f"{price:,.2f}"
@@ -418,7 +468,7 @@ def get_market_quotes() -> dict:
                 else:
                     price_str = f"{price:.5f}"
             else:
-                price_str = "—"
+                price_str = "--"
 
             quotes.append({
                 "symbol": sym,
@@ -429,15 +479,15 @@ def get_market_quotes() -> dict:
                 "direction": direction,
                 "points": points,
             })
-        except Exception as e:
+        except Exception:
             quotes.append({
                 "symbol": sym,
-                "price": "—",
+                "price": "--",
                 "raw_price": 0.0,
                 "change_percent": "+0.00%",
                 "raw_change": 0.0,
                 "direction": "BULLISH",
-                "points": [20.0, 25.0, 30.0, 28.0, 35.0, 40.0, 45.0, 50.0],
+                "points": [10.0, 12.0, 15.0, 14.0, 18.0, 20.0, 23.0, 26.0],
             })
 
     return {"status": "ok", "quotes": quotes}

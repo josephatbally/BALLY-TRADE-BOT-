@@ -21,6 +21,8 @@ import {
   ScanAllMarketsPayload,
   AllMarketAnalysisResponse,
   MarketAnalysisItem,
+  MarketQuote,
+  getMarketQuotes,
 } from '../api/marketsApi';
 
 type MarketStatus = 'READY' | 'PARTIAL' | 'WAITING' | 'FAILED';
@@ -138,6 +140,16 @@ function isTimeframeReady(
       timeframeData.candles.length > 0 &&
       timeframeData.latest_closed_candle_time != null,
   );
+}
+
+function getQuoteFor(
+  quotes: MarketQuote[],
+  symbol: MarketSymbol,
+): MarketQuote | null {
+  const match = quotes.find(
+    item => String(item.symbol ?? '').toUpperCase() === symbol,
+  );
+  return match ?? null;
 }
 
 function getAnalysisMarket(
@@ -283,7 +295,7 @@ function StatusPill({
   return (
     <View style={styles.statusPill}>
       <View style={styles.statusDot} />
-      <Text style={styles.statusText}>{label}</Text>
+      <Text allowFontScaling={false} style={styles.statusText}>{label}</Text>
     </View>
   );
 }
@@ -303,7 +315,7 @@ function TimeframeStatus({
           ready && styles.timeframeDotReady,
         ]}
       />
-      <Text style={styles.timeframeText}>{timeframe}</Text>
+      <Text allowFontScaling={false} style={styles.timeframeText}>{timeframe}</Text>
     </View>
   );
 }
@@ -314,6 +326,7 @@ export default function MarketsScreen() {
     React.useState<ScannerStatusResponse | null>(null);
   const [scan, setScan] =
     React.useState<ScanAllMarketsPayload | null>(null);
+  const [quotes, setQuotes] = React.useState<MarketQuote[]>([]);
   const [analysis, setAnalysis] =
     React.useState<AllMarketAnalysisResponse | null>(null);
 
@@ -338,6 +351,16 @@ export default function MarketsScreen() {
       }
 
       setError(null);
+
+      // Fast non-blocking live quotes
+      getMarketQuotes()
+        .then(res => {
+          if (mountedRef.current && Array.isArray(res?.quotes)) {
+            setQuotes(res.quotes);
+          }
+        })
+        .catch(() => {});
+
 
       try {
                const [
@@ -508,18 +531,18 @@ const executionReady =
         }
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Markets</Text>
-          <Text style={styles.subtitle}>
+          <Text allowFontScaling={false} style={styles.title}>Markets</Text>
+          <Text allowFontScaling={false} style={styles.subtitle}>
             Authoritative BALLY FLOW market data
           </Text>
         </View>
 
         {error ? (
           <View style={styles.errorCard}>
-            <Text style={styles.errorTitle}>
+            <Text allowFontScaling={false} style={styles.errorTitle}>
               Market data unavailable
             </Text>
-            <Text style={styles.errorText}>
+            <Text allowFontScaling={false} style={styles.errorText}>
               {error}
             </Text>
 
@@ -527,7 +550,7 @@ const executionReady =
               style={styles.retryButton}
               onPress={() => loadMarkets(false)}
             >
-              <Text style={styles.retryText}>
+              <Text allowFontScaling={false} style={styles.retryText}>
                 Retry
               </Text>
             </TouchableOpacity>
@@ -537,10 +560,10 @@ const executionReady =
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <View>
-              <Text style={styles.cardTitle}>
+              <Text allowFontScaling={false} style={styles.cardTitle}>
                 Market Universe
               </Text>
-              <Text style={styles.cardSubtitle}>
+              <Text allowFontScaling={false} style={styles.cardSubtitle}>
                 Backend-defined markets
               </Text>
             </View>
@@ -549,7 +572,7 @@ const executionReady =
               <ActivityIndicator size="small" />
             ) : (
               <View style={styles.universeBadge}>
-                <Text style={styles.universeBadgeText}>
+                <Text allowFontScaling={false} style={styles.universeBadgeText}>
                   {marketCount}/{expectedMarketCount}
                 </Text>
               </View>
@@ -558,29 +581,29 @@ const executionReady =
 
           <View style={styles.universeStats}>
             <View style={styles.statBox}>
-              <Text style={styles.statValue}>
+              <Text allowFontScaling={false} style={styles.statValue}>
                 {marketCount}
               </Text>
-              <Text style={styles.statLabel}>
+              <Text allowFontScaling={false} style={styles.statLabel}>
                 Markets
               </Text>
             </View>
 
             <View style={styles.statBox}>
-              <Text style={styles.statValue}>
+              <Text allowFontScaling={false} style={styles.statValue}>
                 {scanner?.timeframe_count ?? ANALYSIS_TIMEFRAMES.length}
               </Text>
-              <Text style={styles.statLabel}>
+              <Text allowFontScaling={false} style={styles.statLabel}>
                 Timeframes
               </Text>
             </View>
 
             <View style={styles.statBox}>
-              <Text style={styles.statValue}>
+              <Text allowFontScaling={false} style={styles.statValue}>
                 {scanner?.expected_stream_count ??
                   requiredTimeframeCount}
               </Text>
-              <Text style={styles.statLabel}>
+              <Text allowFontScaling={false} style={styles.statLabel}>
                 Streams
               </Text>
             </View>
@@ -590,10 +613,10 @@ const executionReady =
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <View>
-              <Text style={styles.cardTitle}>
+              <Text allowFontScaling={false} style={styles.cardTitle}>
                 Market Data Readiness
               </Text>
-              <Text style={styles.cardSubtitle}>
+              <Text allowFontScaling={false} style={styles.cardSubtitle}>
                 H4 ? H1 ? M15
               </Text>
             </View>
@@ -606,7 +629,7 @@ const executionReady =
                   : styles.readinessBadgeWaiting,
               ]}
             >
-              <Text style={styles.readinessBadgeText}>
+              <Text allowFontScaling={false} style={styles.readinessBadgeText}>
                 {marketDataReady
                   ? 'READY'
                   : 'NOT READY'}
@@ -615,46 +638,46 @@ const executionReady =
           </View>
 
           <View style={styles.readinessRow}>
-            <Text style={styles.readinessLabel}>
+            <Text allowFontScaling={false} style={styles.readinessLabel}>
               Scanner
             </Text>
-            <Text style={styles.readinessValue}>
+            <Text allowFontScaling={false} style={styles.readinessValue}>
               {scannerReady ? 'READY' : 'NOT READY'}
             </Text>
           </View>
 
           <View style={styles.readinessRow}>
-            <Text style={styles.readinessLabel}>
+            <Text allowFontScaling={false} style={styles.readinessLabel}>
               Markets
             </Text>
-            <Text style={styles.readinessValue}>
+            <Text allowFontScaling={false} style={styles.readinessValue}>
               {readyMarketCount}/{expectedMarketCount}
             </Text>
           </View>
 
           <View style={styles.readinessRow}>
-            <Text style={styles.readinessLabel}>
+            <Text allowFontScaling={false} style={styles.readinessLabel}>
               Timeframe streams
             </Text>
-            <Text style={styles.readinessValue}>
+            <Text allowFontScaling={false} style={styles.readinessValue}>
               {readyTimeframeCount}/{requiredTimeframeCount}
             </Text>
           </View>
 
           <View style={styles.readinessRow}>
-            <Text style={styles.readinessLabel}>
+            <Text allowFontScaling={false} style={styles.readinessLabel}>
               Partial
             </Text>
-            <Text style={styles.readinessValue}>
+            <Text allowFontScaling={false} style={styles.readinessValue}>
               {partialMarketCount}
             </Text>
           </View>
 
           <View style={styles.readinessRow}>
-            <Text style={styles.readinessLabel}>
+            <Text allowFontScaling={false} style={styles.readinessLabel}>
               Failed
             </Text>
-            <Text style={styles.readinessValue}>
+            <Text allowFontScaling={false} style={styles.readinessValue}>
               {failedMarketCount}
             </Text>
           </View>
@@ -662,19 +685,19 @@ const executionReady =
           <View style={styles.divider} />
 
           <View style={styles.readinessRow}>
-            <Text style={styles.readinessLabel}>
+            <Text allowFontScaling={false} style={styles.readinessLabel}>
               Technical analysis
             </Text>
-            <Text style={styles.readinessValue}>
+            <Text allowFontScaling={false} style={styles.readinessValue}>
               {analysisReady ? 'READY' : 'NOT READY'}
             </Text>
           </View>
 
           <View style={styles.readinessRow}>
-            <Text style={styles.readinessLabel}>
+            <Text allowFontScaling={false} style={styles.readinessLabel}>
               Trading decision
             </Text>
-            <Text style={styles.readinessValue}>
+            <Text allowFontScaling={false} style={styles.readinessValue}>
               {tradingDecisionReady
                 ? 'READY'
                 : 'NOT READY'}
@@ -682,10 +705,10 @@ const executionReady =
           </View>
 
           <View style={styles.readinessRow}>
-            <Text style={styles.readinessLabel}>
+            <Text allowFontScaling={false} style={styles.readinessLabel}>
               Execution
             </Text>
-            <Text style={styles.readinessValue}>
+            <Text allowFontScaling={false} style={styles.readinessValue}>
               {executionReady
                 ? 'READY'
                 : 'NOT READY'}
@@ -696,10 +719,10 @@ const executionReady =
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <View>
-              <Text style={styles.cardTitle}>
+              <Text allowFontScaling={false} style={styles.cardTitle}>
                 Tracked Markets
               </Text>
-              <Text style={styles.cardSubtitle}>
+              <Text allowFontScaling={false} style={styles.cardSubtitle}>
                 Live backend market-data state
               </Text>
             </View>
@@ -708,13 +731,13 @@ const executionReady =
           {loading && markets.length === 0 ? (
             <View style={styles.loadingBox}>
               <ActivityIndicator />
-              <Text style={styles.loadingText}>
+              <Text allowFontScaling={false} style={styles.loadingText}>
                 Loading markets...
               </Text>
             </View>
           ) : markets.length === 0 ? (
             <View style={styles.loadingBox}>
-              <Text style={styles.loadingText}>
+              <Text allowFontScaling={false} style={styles.loadingText}>
                 No markets returned by backend.
               </Text>
             </View>
@@ -739,6 +762,7 @@ const confidence =
 
 const direction =
   getAnalysisDirection(marketAnalysis);
+const quote = getQuoteFor(quotes, market.symbol);
 
               return (
                 <TouchableOpacity
@@ -750,13 +774,13 @@ const direction =
                   activeOpacity={0.75}
                 >
                   <View style={styles.marketIdentity}>
-                    <Text style={styles.marketSymbol}>
+                    <Text allowFontScaling={false} style={styles.marketSymbol}>
                       {market.symbol}
                     </Text>
-                    <Text style={styles.marketName}>
+                    <Text allowFontScaling={false} style={styles.marketName}>
                       {market.name}
                     </Text>
-                    <Text style={styles.marketCategory}>
+                    <Text allowFontScaling={false} style={styles.marketCategory}>
                       {market.category}
                     </Text>
                   </View>
@@ -765,16 +789,16 @@ const direction =
   <StatusPill status={status} />
 
   <View style={styles.analysisSummary}>
-    <Text style={styles.analysisDecision}>
-      {decision ?? 'ANALYSIS UNAVAILABLE'}
+    <Text allowFontScaling={false} style={styles.analysisDecision}>
+      {decision ?? (quote?.price ? String(quote.price) : 'ANALYZING')}
     </Text>
 
-    <Text style={styles.analysisDetail}>
-      {direction ?? '—'}
+    <Text allowFontScaling={false} style={styles.analysisDetail}>
+      {direction ?? 'â€”'}
       {'  '}
       {confidence !== null
         ? `${confidence.toFixed(1)}%`
-        : '—'}
+        : 'â€”'}
     </Text>
   </View>
 
@@ -801,10 +825,10 @@ const direction =
         </View>
 
         <View style={styles.noteCard}>
-          <Text style={styles.noteTitle}>
+          <Text allowFontScaling={false} style={styles.noteTitle}>
             Top-down analysis
           </Text>
-          <Text style={styles.noteText}>
+          <Text allowFontScaling={false} style={styles.noteText}>
             BALLY FLOW receives market data from the
             backend in the authoritative order H4 ?
             H1 ? M15. Trading intelligence remains
@@ -822,7 +846,7 @@ const direction =
             ]}
           />
 
-          <Text style={styles.dataStatusText}>
+          <Text allowFontScaling={false} style={styles.dataStatusText}>
             {marketDataReady
               ? 'Backend market data synchronized'
               : 'Waiting for backend market data'}
@@ -836,7 +860,7 @@ const direction =
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#05070D',
+    backgroundColor: '#0B111D',
   },
   content: {
     padding: 16,
@@ -846,19 +870,19 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   title: {
-    color: '#FFFFFF',
+    color: '#F8FAFC',
     fontSize: 28,
     fontWeight: '700',
   },
   subtitle: {
-    color: '#7F8BA3',
+    color: '#94A3B8',
     fontSize: 13,
     marginTop: 4,
   },
   card: {
-    backgroundColor: '#0A0E18',
+    backgroundColor: '#131D31',
     borderWidth: 1,
-    borderColor: '#1B2435',
+    borderColor: '#1E293B',
     borderRadius: 16,
     padding: 16,
     marginBottom: 14,
@@ -870,24 +894,24 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   cardTitle: {
-    color: '#FFFFFF',
+    color: '#F8FAFC',
     fontSize: 16,
     fontWeight: '700',
   },
   cardSubtitle: {
-    color: '#68748C',
+    color: '#64748B',
     fontSize: 12,
     marginTop: 3,
   },
   universeBadge: {
     borderWidth: 1,
-    borderColor: '#1B2435',
+    borderColor: '#1E293B',
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
   universeBadgeText: {
-    color: '#FFFFFF',
+    color: '#F8FAFC',
     fontSize: 12,
     fontWeight: '700',
   },
@@ -902,12 +926,12 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   statValue: {
-    color: '#FFFFFF',
+    color: '#F8FAFC',
     fontSize: 20,
     fontWeight: '700',
   },
   statLabel: {
-    color: '#68748C',
+    color: '#64748B',
     fontSize: 11,
     marginTop: 4,
   },
@@ -923,7 +947,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#211A0E',
   },
   readinessBadgeText: {
-    color: '#FFFFFF',
+    color: '#F8FAFC',
     fontSize: 11,
     fontWeight: '700',
   },
@@ -933,11 +957,11 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   readinessLabel: {
-    color: '#7F8BA3',
+    color: '#94A3B8',
     fontSize: 13,
   },
   readinessValue: {
-    color: '#FFFFFF',
+    color: '#F8FAFC',
     fontSize: 13,
     fontWeight: '600',
   },
@@ -950,25 +974,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderTopWidth: 1,
-    borderTopColor: '#151D2B',
+    backgroundColor: '#131D31',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    borderRadius: 14,
     paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 10,
   },
   marketIdentity: {
     flex: 1,
   },
   marketSymbol: {
-    color: '#FFFFFF',
+    color: '#F8FAFC',
     fontSize: 15,
     fontWeight: '700',
   },
   marketName: {
-    color: '#7F8BA3',
+    color: '#94A3B8',
     fontSize: 12,
     marginTop: 3,
   },
   marketCategory: {
-    color: '#56627A',
+    color: '#64748B',
     fontSize: 10,
     marginTop: 3,
   },
@@ -980,12 +1008,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   analysisDecision: {
-    color: '#FFFFFF',
+    color: '#F8FAFC',
     fontSize: 12,
     fontWeight: '700',
   },
   analysisDetail: {
-    color: '#023c12e4',
+    color: '#10B981',
     fontSize: 10,
     marginTop: 2,
   },
@@ -993,7 +1021,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#1B2435',
+    borderColor: '#1E293B',
     borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 5,
@@ -1002,11 +1030,11 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#0c1b79cc',
+    backgroundColor: '#38BDF8',
     marginRight: 5,
   },
   statusText: {
-    color: '#203b04e6',
+    color: '#10B981',
     fontSize: 9,
     fontWeight: '700',
   },
@@ -1049,7 +1077,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   noteText: {
-    color: '#7F8BA3',
+    color: '#94A3B8',
     fontSize: 12,
     lineHeight: 18,
   },
@@ -1072,24 +1100,24 @@ const styles = StyleSheet.create({
     backgroundColor: '#56627A',
   },
   dataStatusText: {
-    color: '#68748C',
+    color: '#64748B',
     fontSize: 11,
   },
   errorCard: {
-    backgroundColor: '#1A0D12',
+    backgroundColor: '#1E1420',
     borderWidth: 1,
-    borderColor: '#4A1C29',
+    borderColor: '#EF4444',
     borderRadius: 16,
     padding: 16,
     marginBottom: 14,
   },
   errorTitle: {
-    color: '#FFFFFF',
+    color: '#F8FAFC',
     fontSize: 14,
     fontWeight: '700',
   },
   errorText: {
-    color: '#B88B96',
+    color: '#FCA5A5',
     fontSize: 12,
     lineHeight: 18,
     marginTop: 5,
@@ -1100,12 +1128,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 9,
-    backgroundColor: '#111A2A',
+    backgroundColor: '#1E293B',
     borderWidth: 1,
-    borderColor: '#273754',
+    borderColor: '#334155',
   },
   retryText: {
-    color: '#FFFFFF',
+    color: '#F8FAFC',
     fontSize: 12,
     fontWeight: '700',
   },
@@ -1114,7 +1142,7 @@ const styles = StyleSheet.create({
     paddingVertical: 24,
   },
   loadingText: {
-    color: '#68748C',
+    color: '#64748B',
     fontSize: 12,
     marginTop: 8,
   },
