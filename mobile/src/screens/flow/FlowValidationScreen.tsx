@@ -153,7 +153,7 @@ export default function FlowValidationScreen({
               pressed && styles.pressed,
             ]}
           >
-            <Text style={styles.backIcon}>â€¹</Text>
+            <Text style={styles.backIcon}></Text>
           </Pressable>
 
           <View style={styles.headerText}>
@@ -314,7 +314,7 @@ export default function FlowValidationScreen({
           </View>
 
           <View style={styles.continueArrow}>
-            <Text style={styles.arrowIcon}>â†’</Text>
+            <Text style={styles.arrowIcon}></Text>
           </View>
         </Pressable>
       </View>
