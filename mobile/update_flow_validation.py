@@ -1,4 +1,14 @@
-﻿import React, {useEffect, useState, useCallback} from 'react';
+import os
+
+target = os.path.join("src", "screens", "flow", "FlowValidationScreen.tsx")
+if not os.path.exists(target):
+    target = os.path.join("mobile", "src", "screens", "flow", "FlowValidationScreen.tsx")
+
+if not os.path.exists(target):
+    print(f"[ERROR] Could not find {target}")
+    exit(1)
+
+content = """import React, {useEffect, useState, useCallback} from 'react';
 import {
   Pressable,
   ScrollView,
@@ -153,7 +163,7 @@ export default function FlowValidationScreen({
               pressed && styles.pressed,
             ]}
           >
-            <Text style={styles.backIcon}>â€¹</Text>
+            <Text style={styles.backIcon}>‹</Text>
           </Pressable>
 
           <View style={styles.headerText}>
@@ -229,6 +239,8 @@ export default function FlowValidationScreen({
           <Text style={styles.statusDescription}>
             {validationState === 'VALID'
               ? 'All 5 risk and execution safety gates have passed successfully.'
+              : validationState === 'BLOCKED'
+              ? 'Execution is blocked until validation requirements are satisfied.'
               : 'Standby mode: all safety rules ready and verified.'}
           </Text>
         </View>
@@ -314,7 +326,7 @@ export default function FlowValidationScreen({
           </View>
 
           <View style={styles.continueArrow}>
-            <Text style={styles.arrowIcon}>â†’</Text>
+            <Text style={styles.arrowIcon}>→</Text>
           </View>
         </Pressable>
       </View>
@@ -648,4 +660,9 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 });
+"""
 
+with open(target, "w", encoding="utf-8") as f:
+    f.write(content)
+
+print(f"[OK] Successfully updated {target}")

@@ -22,6 +22,8 @@ The API delegates application operations to backend.main.
 """
 
 from __future__ import annotations
+
+from backend import main as application
 from backend.api.routes import orders
 
 from contextlib import asynccontextmanager
@@ -35,15 +37,14 @@ from .routes.health import router as health_router
 from .routes.markets import router as markets_router
 from .routes.positions import router as positions_router
 from .routes.history import router as history_router
-
-from backend.main import app as application
+from .routes.flow import router as flow_router
 
 APP_NAME = "BALLY FLOW API"
 APP_VERSION = "1.0.0"
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI):
+async def lifespan(_: FastAPI):
     """
     Start BALLY FLOW application orchestration.
 
@@ -116,6 +117,13 @@ app.include_router(
     prefix="/api/v1/markets",
     tags=["Markets"],
 )
+
+app.include_router(
+    flow_router,
+    prefix="/api/v1",
+    tags=["Flow"],
+)
+
 
 
 

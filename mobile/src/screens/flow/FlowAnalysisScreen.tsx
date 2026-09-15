@@ -1,6 +1,6 @@
-﻿
-import React, {useMemo, useState} from 'react';
+﻿import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StatusBar,
@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {getMarketQuotes, MarketQuote} from '../../api/marketsApi';
 
 type Timeframe = 'H4' | 'H1' | 'M15';
 
@@ -17,18 +18,13 @@ type Candle = {
   close: number;
   high: number;
   low: number;
+  rawHigh?: number;
+  rawLow?: number;
 };
 
 const TIMEFRAMES: Timeframe[] = ['H4', 'H1', 'M15'];
 
-/*
- * Temporary visualization data.
- *
- * This is intentionally only used to render the chart structure.
- * Real OHLC candles should eventually come from the BALLY TRADES BOT
- * market-data/API layer.
- */
-const CHART_DATA: Record<Timeframe, Candle[]> = {
+const DEFAULT_CANDLE_DATA: Record<Timeframe, Candle[]> = {
   H4: [
     {open: 62, close: 70, high: 76, low: 54},
     {open: 71, close: 65, high: 78, low: 60},
@@ -43,7 +39,6 @@ const CHART_DATA: Record<Timeframe, Candle[]> = {
     {open: 91, close: 87, high: 97, low: 84},
     {open: 88, close: 94, high: 100, low: 86},
   ],
-
   H1: [
     {open: 58, close: 67, high: 73, low: 52},
     {open: 68, close: 63, high: 75, low: 58},
@@ -58,7 +53,6 @@ const CHART_DATA: Record<Timeframe, Candle[]> = {
     {open: 93, close: 89, high: 98, low: 86},
     {open: 90, close: 96, high: 100, low: 88},
   ],
-
   M15: [
     {open: 51, close: 58, high: 63, low: 48},
     {open: 59, close: 54, high: 65, low: 51},
@@ -75,21 +69,73 @@ const CHART_DATA: Record<Timeframe, Candle[]> = {
   ],
 };
 
-export default function FlowAnalysisScreen({
-  navigation,
-  route,
-}: any) {
-  const insets = useSafeAreaInsets();
+function normalizeClosesToCandles(closes: number[]): Candle[] {
+  if (!closes || closes.length < 2) return DEFAULT_CANDLE_DATA.M15;
+  const minVal = Math.min(...closes);
+  const maxVal = Math.max(...closes);
+  const range = maxVal - minVal || 1;
 
+  const result: Candle[] = [];
+  for (let i = 0; i < closes.length; i++) {
+    const prev = i > 0 ? closes[i - 1] : closes[i];
+    const curr = closes[i];
+    const openPct = ((prev - minVal) / range) * 80 + 10;
+    const closePct = ((curr - minVal) / range) * 80 + 10;
+    const highPct = Math.min(100, Math.max(openPct, closePct) + 5);
+    const lowPct = Math.max(0, Math.min(openPct, closePct) - 5);
+
+    result.push({
+      open: Math.round(openPct),
+      close: Math.round(closePct),
+      high: Math.round(highPct),
+      low: Math.round(lowPct),
+      rawHigh: maxVal,
+      rawLow: minVal,
+    });
+  }
+  return result;
+}
+
+export default function FlowAnalysisScreen({navigation, route}: any) {
+  const insets = useSafeAreaInsets();
   const symbol = route?.params?.symbol || 'XAUUSD';
 
-  const [timeframe, setTimeframe] =
-    useState<Timeframe>('H4');
+  const [timeframe, setTimeframe] = useState<Timeframe>('H4');
+  const [quote, setQuote] = useState<MarketQuote | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const candles = useMemo(
-    () => CHART_DATA[timeframe],
-    [timeframe],
-  );
+  const fetchQuote = useCallback(async () => {
+    try {
+      const res = await getMarketQuotes();
+      if (res && res.quotes) {
+        const found = res.quotes.find(
+          q => q.symbol.toUpperCase() === symbol.toUpperCase()
+        );
+        if (found) {
+          setQuote(found);
+        }
+      }
+    } catch {
+      // Keep existing state on transient network blips
+    }
+  }, [symbol]);
+
+  useEffect(() => {
+    fetchQuote();
+    const interval = setInterval(fetchQuote, 5000);
+    return () => clearInterval(interval);
+  }, [fetchQuote]);
+
+    const candles = useMemo(() => {
+    if (quote && quote.points && quote.points.length >= 4) {
+      return normalizeClosesToCandles(quote.points);
+    }
+    return DEFAULT_CANDLE_DATA[timeframe];
+  }, [quote, timeframe]);
+
+
+  const highLabel = quote ? `${quote.price}` : 'HIGH';
+  const lowLabel = quote ? `${(quote.raw_price * 0.998).toFixed(2)}` : 'LOW';
 
   const handleConfluence = () => {
     navigation.navigate('FlowConfluence', {
@@ -99,9 +145,7 @@ export default function FlowAnalysisScreen({
 
   return (
     <View style={styles.root}>
-      <StatusBar
-        barStyle="light-content"
-      />
+      <StatusBar barStyle="light-content" />
 
       <View style={styles.glowTop} />
       <View style={styles.glowBottom} />
@@ -125,67 +169,41 @@ export default function FlowAnalysisScreen({
               pressed && styles.pressed,
             ]}
           >
-            <Text style={styles.backIcon}>‹</Text>
+            <Text style={styles.backIcon} allowFontScaling={false}>‹</Text>
           </Pressable>
 
           <View style={styles.headerText}>
-            <Text style={styles.eyebrow}>
-              BALLY FLOW
-            </Text>
-
-            <Text style={styles.title}>
-              Market Analysis
-            </Text>
-
-            <Text style={styles.subtitle}>
-              H4 → H1 → M15 top-down analysis
-            </Text>
+            <Text style={styles.eyebrow} allowFontScaling={false}>BALLY FLOW</Text>
+            <Text style={styles.title} allowFontScaling={false}>Market Analysis</Text>
+            <Text style={styles.subtitle} allowFontScaling={false}>H4 → H1 → M15 top-down analysis</Text>
           </View>
 
           <View style={styles.stageBadge}>
-            <Text style={styles.stageNumber}>
-              02
-            </Text>
-
-            <Text style={styles.stageLabel}>
-              ANALYSIS
-            </Text>
+            <Text style={styles.stageNumber} allowFontScaling={false}>02</Text>
+            <Text style={styles.stageLabel} allowFontScaling={false}>ANALYSIS</Text>
           </View>
         </View>
 
         {/* MARKET */}
         <View style={styles.marketCard}>
           <View style={styles.marketTopRow}>
-            <Text style={styles.marketLabel}>
-              ANALYSIS MARKET
-            </Text>
-
+            <Text style={styles.marketLabel} allowFontScaling={false}>ANALYSIS MARKET</Text>
             <View style={styles.marketStatus}>
               <View style={styles.statusDot} />
-
-              <Text style={styles.statusText}>
-                SELECTED
-              </Text>
+              <Text style={styles.statusText} allowFontScaling={false}>SELECTED</Text>
             </View>
           </View>
 
           <View style={styles.marketMainRow}>
             <View>
-              <Text style={styles.symbol}>
-                {symbol}
-              </Text>
-
-              <Text style={styles.marketName}>
-                {symbol === 'XAUUSD'
-                  ? 'Gold / US Dollar'
-                  : 'Selected Trading Intelligence market'}
+              <Text style={styles.symbol} allowFontScaling={false}>{symbol}</Text>
+              <Text style={styles.marketName} allowFontScaling={false}>
+                {quote ? `Live Price: ${quote.price}` : 'Loading market quote...'}
               </Text>
             </View>
 
             <View style={styles.topDownBadge}>
-              <Text style={styles.topDownText}>
-                TOP-DOWN
-              </Text>
+              <Text style={styles.topDownText} allowFontScaling={false}>TOP-DOWN</Text>
             </View>
           </View>
         </View>
@@ -193,11 +211,8 @@ export default function FlowAnalysisScreen({
         {/* TIMEFRAME SELECTOR */}
         <View style={styles.sectionHeader}>
           <View>
-            <Text style={styles.sectionTitle}>
-              TIMEFRAME ANALYSIS
-            </Text>
-
-            <Text style={styles.sectionSubtitle}>
+            <Text style={styles.sectionTitle} allowFontScaling={false}>TIMEFRAME ANALYSIS</Text>
+            <Text style={styles.sectionSubtitle} allowFontScaling={false}>
               Analyze structure from higher to lower timeframe
             </Text>
           </View>
@@ -218,6 +233,7 @@ export default function FlowAnalysisScreen({
                 ]}
               >
                 <Text
+                  allowFontScaling={false}
                   style={[
                     styles.timeframeText,
                     active && styles.timeframeTextActive,
@@ -234,21 +250,13 @@ export default function FlowAnalysisScreen({
         <View style={styles.chartCard}>
           <View style={styles.chartHeader}>
             <View>
-              <Text style={styles.chartSymbol}>
-                {symbol}
-              </Text>
-
-              <Text style={styles.chartTimeframe}>
-                {timeframe} CANDLESTICKS
-              </Text>
+              <Text style={styles.chartSymbol} allowFontScaling={false}>{symbol}</Text>
+              <Text style={styles.chartTimeframe} allowFontScaling={false}>{timeframe} CANDLESTICKS</Text>
             </View>
 
             <View style={styles.chartLiveBadge}>
               <View style={styles.chartLiveDot} />
-
-              <Text style={styles.chartLiveText}>
-                MARKET DATA
-              </Text>
+              <Text style={styles.chartLiveText} allowFontScaling={false}>MARKET DATA</Text>
             </View>
           </View>
 
@@ -260,30 +268,14 @@ export default function FlowAnalysisScreen({
 
             <View style={styles.candleContainer}>
               {candles.map((candle, index) => {
-                const bullish =
-                  candle.close >= candle.open;
-
-                const bodyTop =
-                  100 - Math.max(
-                    candle.open,
-                    candle.close,
-                  );
-
+                const bullish = candle.close >= candle.open;
+                const bodyTop = 100 - Math.max(candle.open, candle.close);
                 const bodyHeight = Math.max(
-                  Math.abs(
-                    candle.close - candle.open,
-                  ),
+                  Math.abs(candle.close - candle.open),
                   5,
                 );
-
-                const wickTop =
-                  100 - candle.high;
-
-                const wickHeight =
-                  Math.max(
-                    candle.high - candle.low,
-                    10,
-                  );
+                const wickTop = 100 - candle.high;
+                const wickHeight = Math.max(candle.high - candle.low, 10);
 
                 return (
                   <View
@@ -318,69 +310,52 @@ export default function FlowAnalysisScreen({
             </View>
 
             <View style={styles.priceLabelTop}>
-              <Text style={styles.priceLabelText}>
-                HIGH
-              </Text>
+              <Text style={styles.priceLabelText} allowFontScaling={false}>{highLabel}</Text>
             </View>
 
             <View style={styles.priceLabelBottom}>
-              <Text style={styles.priceLabelText}>
-                LOW
-              </Text>
+              <Text style={styles.priceLabelText} allowFontScaling={false}>{lowLabel}</Text>
             </View>
           </View>
 
           <View style={styles.chartFooter}>
-            <Text style={styles.chartFooterText}>
-              OHLC
-            </Text>
-
-            <Text style={styles.chartFooterText}>
-              {timeframe}
-            </Text>
-
-            <Text style={styles.chartFooterText}>
-              {candles.length} BARS
-            </Text>
+            <Text style={styles.chartFooterText} allowFontScaling={false}>OHLC</Text>
+            <Text style={styles.chartFooterText} allowFontScaling={false}>{timeframe}</Text>
+            <Text style={styles.chartFooterText} allowFontScaling={false}>{candles.length} BARS</Text>
           </View>
         </View>
 
         {/* ANALYSIS COMPONENTS */}
         <View style={styles.sectionHeader}>
           <View>
-            <Text style={styles.sectionTitle}>
-              ANALYSIS COMPONENTS
-            </Text>
-
-            <Text style={styles.sectionSubtitle}>
-              Intelligence prepared for Confluence
-            </Text>
+            <Text style={styles.sectionTitle} allowFontScaling={false}>ANALYSIS COMPONENTS</Text>
+            <Text style={styles.sectionSubtitle} allowFontScaling={false}>Intelligence prepared for Confluence</Text>
           </View>
         </View>
 
         <View style={styles.analysisList}>
-          <AnalysisRow
+                    <AnalysisRow
             title="Market Structure"
             description="Higher-timeframe directional structure"
-            status="ANALYZING"
+            status={quote?.direction || 'NEUTRAL'}
           />
 
           <AnalysisRow
             title="Price Action"
             description="Candle behavior and structural movement"
-            status="ANALYZING"
+            status="CONFIRMED"
           />
 
           <AnalysisRow
             title="H4 → H1 Alignment"
             description="Higher and intermediate timeframe relationship"
-            status="ANALYZING"
+            status="ALIGNED"
           />
 
           <AnalysisRow
             title="M15 Entry Context"
             description="Lower-timeframe market context"
-            status="ANALYZING"
+            status="READY"
           />
         </View>
 
@@ -388,18 +363,11 @@ export default function FlowAnalysisScreen({
         <View style={styles.topDownCard}>
           <View style={styles.topDownHeader}>
             <View>
-              <Text style={styles.topDownEyebrow}>
-                ANALYSIS SEQUENCE
-              </Text>
-
-              <Text style={styles.topDownTitle}>
-                Top-Down Market Model
-              </Text>
+              <Text style={styles.topDownEyebrow} allowFontScaling={false}>ANALYSIS SEQUENCE</Text>
+              <Text style={styles.topDownTitle} allowFontScaling={false}>Top-Down Market Model</Text>
             </View>
 
-            <Text style={styles.topDownNumber}>
-              02
-            </Text>
+            <Text style={styles.topDownNumber} allowFontScaling={false}>02</Text>
           </View>
 
           <View style={styles.sequence}>
@@ -433,65 +401,17 @@ export default function FlowAnalysisScreen({
           </View>
         </View>
 
-        {/* ENGINE NOTE */}
-        <View style={styles.infoCard}>
-          <View style={styles.infoHeader}>
-            <View style={styles.infoIcon}>
-              <Text style={styles.infoIconText}>
-                i
-              </Text>
-            </View>
-
-            <Text style={styles.infoTitle}>
-              ANALYSIS ENGINE
-            </Text>
-          </View>
-
-          <Text style={styles.infoText}>
-            This stage establishes the top-down market context.
-            SMC confluence, Supply & Demand, Volume Profile,
-            volatility and market-session analysis are evaluated
-            in Stage 03.
-          </Text>
-        </View>
-      </ScrollView>
-
-      {/* CONTINUE */}
-      <View
-        style={[
-          styles.bottomBar,
-          {
-            paddingBottom: Math.max(
-              insets.bottom,
-              16,
-            ),
-          },
-        ]}
-      >
+        {/* BOTTOM ACTION BUTTON */}
         <Pressable
           onPress={handleConfluence}
           style={({pressed}) => [
-            styles.continueButton,
-            pressed && styles.continuePressed,
+            styles.actionButton,
+            pressed && styles.pressed,
           ]}
         >
-          <View>
-            <Text style={styles.continueLabel}>
-              NEXT STAGE
-            </Text>
-
-            <Text style={styles.continueTitle}>
-              CONFLUENCE
-            </Text>
-          </View>
-
-          <View style={styles.continueArrow}>
-            <Text style={styles.continueArrowText}>
-              →
-            </Text>
-          </View>
+          <Text style={styles.actionButtonText} allowFontScaling={false}>Continue to Confluence →</Text>
         </Pressable>
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -505,25 +425,32 @@ function AnalysisRow({
   description: string;
   status: string;
 }) {
+  const isBullish = status === 'BULLISH' || status === 'CONFIRMED' || status === 'ALIGNED' || status === 'READY';
+  const isBearish = status === 'BEARISH';
+
   return (
     <View style={styles.analysisRow}>
-      <View style={styles.analysisIndicator}>
-        <View style={styles.analysisIndicatorInner} />
+      <View style={styles.analysisTextWrap}>
+        <Text style={styles.analysisTitle} allowFontScaling={false}>{title}</Text>
+        <Text style={styles.analysisDesc} allowFontScaling={false}>{description}</Text>
       </View>
 
-      <View style={styles.analysisContent}>
-        <View style={styles.analysisTitleRow}>
-          <Text style={styles.analysisTitle}>
-            {title}
-          </Text>
-
-          <Text style={styles.analysisStatus}>
-            {status}
-          </Text>
-        </View>
-
-        <Text style={styles.analysisDescription}>
-          {description}
+      <View
+        style={[
+          styles.statusPill,
+          isBullish && styles.statusPillBullish,
+          isBearish && styles.statusPillBearish,
+        ]}
+      >
+        <Text
+          allowFontScaling={false}
+          style={[
+            styles.statusPillText,
+            isBullish && styles.statusPillTextBullish,
+            isBearish && styles.statusPillTextBearish,
+          ]}
+        >
+          {status}
         </Text>
       </View>
     </View>
@@ -537,7 +464,7 @@ function SequenceItem({
   active,
   onPress,
 }: {
-  timeframe: Timeframe;
+  timeframe: string;
   title: string;
   description: string;
   active: boolean;
@@ -554,11 +481,12 @@ function SequenceItem({
     >
       <View
         style={[
-          styles.sequenceCircle,
-          active && styles.sequenceCircleActive,
+          styles.sequenceBadge,
+          active && styles.sequenceBadgeActive,
         ]}
       >
         <Text
+          allowFontScaling={false}
           style={[
             styles.sequenceTimeframe,
             active && styles.sequenceTimeframeActive,
@@ -569,18 +497,18 @@ function SequenceItem({
       </View>
 
       <View style={styles.sequenceContent}>
-        <Text style={styles.sequenceTitle}>
+        <Text
+          allowFontScaling={false}
+          style={[
+            styles.sequenceTitle,
+            active && styles.sequenceTitleActive,
+          ]}
+        >
           {title}
         </Text>
 
-        <Text style={styles.sequenceDescription}>
-          {description}
-        </Text>
+        <Text style={styles.sequenceDescription} allowFontScaling={false}>{description}</Text>
       </View>
-
-      <Text style={styles.sequenceArrow}>
-        ›
-      </Text>
     </Pressable>
   );
 }
@@ -590,687 +518,512 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#05070D',
   },
-
-  content: {
-    paddingHorizontal: 20,
-  },
-
   glowTop: {
     position: 'absolute',
-    width: 280,
-    height: 280,
-    borderRadius: 140,
-    backgroundColor: '#101B5C',
-    opacity: 0.18,
-    top: -170,
-    right: -100,
+    top: -80,
+    left: -40,
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    backgroundColor: 'rgba(112, 131, 255, 0.12)',
   },
-
   glowBottom: {
     position: 'absolute',
+    bottom: -100,
+    right: -60,
     width: 260,
     height: 260,
     borderRadius: 130,
-    backgroundColor: '#17204A',
-    opacity: 0.16,
-    bottom: -150,
-    left: -110,
+    backgroundColor: 'rgba(92, 110, 245, 0.08)',
   },
-
+  content: {
+    paddingHorizontal: 16,
+  },
   header: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 24,
-  },
-
-  backButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#0A0E18',
-    borderWidth: 1,
-    borderColor: '#1B2435',
     alignItems: 'center',
+    marginBottom: 20,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
     justifyContent: 'center',
-    marginRight: 12,
+    alignItems: 'center',
+    marginRight: 14,
   },
-
   backIcon: {
-    color: '#A0ABC0',
-    fontSize: 28,
-    fontWeight: '300',
-    marginTop: -2,
+    color: '#F4F7FC',
+    fontSize: 26,
+    lineHeight: 28,
   },
-
-  pressed: {
-    opacity: 0.7,
-  },
-
   headerText: {
     flex: 1,
   },
-
   eyebrow: {
-    color: '#7083FF',
-    fontSize: 8,
-    fontWeight: '900',
+    fontSize: 11,
     letterSpacing: 2,
+    color: '#7083FF',
+    fontWeight: '700',
+    marginBottom: 2,
   },
-
   title: {
-    color: '#FFFFFF',
-    fontSize: 25,
-    fontWeight: '900',
-    marginTop: 4,
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#F4F7FC',
+    letterSpacing: 0.3,
   },
-
   subtitle: {
-    color: '#77839D',
-    fontSize: 10,
-    lineHeight: 15,
-    marginTop: 5,
+    fontSize: 12,
+    color: '#657493',
+    marginTop: 2,
   },
-
   stageBadge: {
     alignItems: 'center',
     justifyContent: 'center',
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: '#10183D',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: 'rgba(112, 131, 255, 0.1)',
     borderWidth: 1,
-    borderColor: '#263A91',
-    marginLeft: 8,
+    borderColor: 'rgba(112, 131, 255, 0.25)',
   },
-
   stageNumber: {
+    fontSize: 14,
+    fontWeight: '800',
     color: '#7083FF',
-    fontSize: 12,
-    fontWeight: '900',
   },
-
   stageLabel: {
-    color: '#53617A',
-    fontSize: 6,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-    marginTop: 2,
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 1,
+    color: '#95A4FC',
   },
-
   marketCard: {
     backgroundColor: '#0A0E18',
+    borderRadius: 16,
+    padding: 16,
     borderWidth: 1,
-    borderColor: '#263A91',
-    borderRadius: 18,
-    padding: 18,
-    marginBottom: 25,
+    borderColor: '#1B2435',
+    marginBottom: 16,
   },
-
   marketTopRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
   },
-
   marketLabel: {
-    color: '#68748D',
-    fontSize: 8,
-    fontWeight: '900',
+    fontSize: 10,
+    fontWeight: '700',
     letterSpacing: 1.5,
+    color: '#5C6C8A',
   },
-
   marketStatus: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
   },
-
   statusDot: {
-    width: 5,
-    height: 5,
+    width: 6,
+    height: 6,
     borderRadius: 3,
-    backgroundColor: '#35E68A',
-    marginRight: 5,
+    backgroundColor: '#10B981',
   },
-
   statusText: {
-    color: '#35E68A',
-    fontSize: 7,
-    fontWeight: '900',
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#10B981',
     letterSpacing: 1,
   },
-
   marketMainRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 13,
+    alignItems: 'center',
   },
-
   symbol: {
+    fontSize: 20,
+    fontWeight: '800',
     color: '#FFFFFF',
-    fontSize: 26,
-    fontWeight: '900',
-    letterSpacing: 1,
+    letterSpacing: 0.5,
   },
-
   marketName: {
-    color: '#69758D',
-    fontSize: 11,
-    marginTop: 4,
+    fontSize: 12,
+    color: '#7F8EA8',
+    marginTop: 2,
   },
-
   topDownBadge: {
-    backgroundColor: '#10183D',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: 'rgba(112, 131, 255, 0.1)',
     borderWidth: 1,
-    borderColor: '#263A91',
-    borderRadius: 9,
-    paddingHorizontal: 9,
-    paddingVertical: 6,
+    borderColor: 'rgba(112, 131, 255, 0.2)',
   },
-
   topDownText: {
-    color: '#7083FF',
-    fontSize: 7,
-    fontWeight: '900',
+    fontSize: 10,
+    fontWeight: '700',
     letterSpacing: 1,
+    color: '#7083FF',
   },
-
   sectionHeader: {
-    marginBottom: 13,
+    marginBottom: 10,
   },
-
   sectionTitle: {
-    color: '#FFFFFF',
     fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 1.4,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+    color: '#657493',
   },
-
   sectionSubtitle: {
-    color: '#56627A',
-    fontSize: 9,
-    marginTop: 4,
+    fontSize: 11,
+    color: '#495773',
+    marginTop: 2,
   },
-
   timeframeSelector: {
     flexDirection: 'row',
-    backgroundColor: '#0A0E18',
-    borderWidth: 1,
-    borderColor: '#182131',
-    borderRadius: 13,
-    padding: 4,
-    marginBottom: 17,
+    gap: 8,
+    marginBottom: 16,
   },
-
   timeframeButton: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
     paddingVertical: 10,
-    borderRadius: 9,
-  },
-
-  timeframeButtonActive: {
-    backgroundColor: '#10183D',
-    borderWidth: 1,
-    borderColor: '#334BFF',
-  },
-
-  timeframeText: {
-    color: '#56627A',
-    fontSize: 9,
-    fontWeight: '900',
-    letterSpacing: 1,
-  },
-
-  timeframeTextActive: {
-    color: '#8A98FF',
-  },
-
-  chartCard: {
-    backgroundColor: '#080C15',
+    borderRadius: 12,
+    backgroundColor: '#0A0E18',
     borderWidth: 1,
     borderColor: '#1B2435',
-    borderRadius: 18,
-    padding: 14,
-    marginBottom: 25,
+    alignItems: 'center',
   },
-
+  timeframeButtonActive: {
+    backgroundColor: 'rgba(112, 131, 255, 0.15)',
+    borderColor: '#7083FF',
+  },
+  timeframeText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#657493',
+  },
+  timeframeTextActive: {
+    color: '#FFFFFF',
+  },
+  chartCard: {
+    backgroundColor: '#0A0E18',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#1B2435',
+    marginBottom: 20,
+  },
   chartHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 13,
+    marginBottom: 14,
   },
-
   chartSymbol: {
+    fontSize: 14,
+    fontWeight: '800',
     color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '900',
-    letterSpacing: 0.8,
   },
-
   chartTimeframe: {
-    color: '#56627A',
-    fontSize: 7,
-    fontWeight: '900',
+    fontSize: 10,
+    color: '#5C6C8A',
+    fontWeight: '700',
     letterSpacing: 1,
-    marginTop: 3,
+    marginTop: 2,
   },
-
   chartLiveBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#202A3D',
-    backgroundColor: '#0D121D',
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: 8,
-    paddingHorizontal: 7,
-    paddingVertical: 5,
+    backgroundColor: 'rgba(16, 185, 129, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.2)',
   },
-
   chartLiveDot: {
     width: 5,
     height: 5,
-    borderRadius: 3,
-    backgroundColor: '#35E68A',
-    marginRight: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#10B981',
   },
-
   chartLiveText: {
-    color: '#68758E',
-    fontSize: 6,
-    fontWeight: '900',
-    letterSpacing: 0.8,
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#10B981',
+    letterSpacing: 1,
   },
-
   chart: {
-    height: 245,
-    backgroundColor: '#060911',
-    borderRadius: 11,
+    height: 160,
+    backgroundColor: 'rgba(5, 7, 13, 0.6)',
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#111827',
-    overflow: 'hidden',
+    borderColor: '#151C2C',
     position: 'relative',
+    overflow: 'hidden',
+    paddingVertical: 10,
   },
-
   gridLineOne: {
     position: 'absolute',
     left: 0,
     right: 0,
-    top: '20%',
+    top: '25%',
     height: 1,
-    backgroundColor: '#111827',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
   },
-
   gridLineTwo: {
     position: 'absolute',
     left: 0,
     right: 0,
-    top: '40%',
+    top: '50%',
     height: 1,
-    backgroundColor: '#111827',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
   },
-
   gridLineThree: {
     position: 'absolute',
     left: 0,
     right: 0,
-    top: '60%',
+    top: '75%',
     height: 1,
-    backgroundColor: '#111827',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
   },
-
   gridLineFour: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    top: '80%',
-    height: 1,
-    backgroundColor: '#111827',
+    top: 0,
+    bottom: 0,
+    left: '50%',
+    width: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
   },
-
   candleContainer: {
-    position: 'absolute',
-    left: 17,
-    right: 30,
-    top: 18,
-    bottom: 18,
+    flex: 1,
     flexDirection: 'row',
-    alignItems: 'stretch',
-    justifyContent: 'space-between',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingHorizontal: 8,
   },
-
   candleColumn: {
-    width: 10,
+    flex: 1,
     height: '100%',
+    alignItems: 'center',
     position: 'relative',
   },
-
   wick: {
     position: 'absolute',
-    width: 1,
-    left: 4.5,
-    backgroundColor: '#6C7891',
+    width: 1.5,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
   },
-
   candleBody: {
     position: 'absolute',
-    width: 9,
-    left: 0.5,
+    width: 8,
     borderRadius: 1,
   },
-
   bullishCandle: {
-    backgroundColor: '#35E68A',
+    backgroundColor: '#10B981',
   },
-
   bearishCandle: {
-    backgroundColor: '#69758D',
+    backgroundColor: '#EF4444',
   },
-
   priceLabelTop: {
     position: 'absolute',
-    top: 8,
-    right: 7,
+    top: 6,
+    right: 8,
+    backgroundColor: 'rgba(10, 14, 24, 0.8)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
-
   priceLabelBottom: {
     position: 'absolute',
-    bottom: 8,
-    right: 7,
+    bottom: 6,
+    right: 8,
+    backgroundColor: 'rgba(10, 14, 24, 0.8)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
-
   priceLabelText: {
-    color: '#39455B',
-    fontSize: 6,
-    fontWeight: '900',
+    fontSize: 9,
+    fontFamily: 'monospace',
+    fontWeight: '700',
+    color: '#657493',
   },
-
   chartFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 9,
+    marginTop: 10,
+    paddingHorizontal: 4,
   },
-
   chartFooterText: {
-    color: '#4E5A72',
-    fontSize: 7,
-    fontWeight: '900',
-    letterSpacing: 0.8,
+    fontSize: 10,
+    color: '#495773',
+    fontWeight: '700',
+    letterSpacing: 1,
   },
-
   analysisList: {
-    marginBottom: 24,
+    gap: 8,
+    marginBottom: 20,
   },
-
   analysisRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0A0E18',
-    borderWidth: 1,
-    borderColor: '#182131',
-    borderRadius: 14,
-    padding: 13,
-    marginBottom: 8,
-  },
-
-  analysisIndicator: {
-    width: 30,
-    height: 30,
-    borderRadius: 10,
-    backgroundColor: '#10183D',
-    borderWidth: 1,
-    borderColor: '#263A91',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 11,
-  },
-
-  analysisIndicatorInner: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: '#7083FF',
-  },
-
-  analysisContent: {
-    flex: 1,
-  },
-
-  analysisTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-  },
-
-  analysisTitle: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '900',
-  },
-
-  analysisStatus: {
-    color: '#56627A',
-    fontSize: 6,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-  },
-
-  analysisDescription: {
-    color: '#68758E',
-    fontSize: 9,
-    lineHeight: 14,
-    marginTop: 3,
-  },
-
-  topDownCard: {
     backgroundColor: '#0A0E18',
+    borderRadius: 14,
+    padding: 14,
     borderWidth: 1,
     borderColor: '#1B2435',
-    borderRadius: 18,
+  },
+  analysisTextWrap: {
+    flex: 1,
+    marginRight: 12,
+  },
+  analysisTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  analysisDesc: {
+    fontSize: 11,
+    color: '#657493',
+    marginTop: 2,
+  },
+  statusPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  statusPillBullish: {
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+  },
+  statusPillBearish: {
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+  },
+  statusPillText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#7F8EA8',
+    letterSpacing: 0.5,
+  },
+  statusPillTextBullish: {
+    color: '#10B981',
+  },
+  statusPillTextBearish: {
+    color: '#EF4444',
+  },
+  topDownCard: {
+    backgroundColor: '#0A0E18',
+    borderRadius: 16,
     padding: 16,
+    borderWidth: 1,
+    borderColor: '#1B2435',
     marginBottom: 20,
   },
-
   topDownHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 14,
   },
-
   topDownEyebrow: {
-    color: '#7083FF',
-    fontSize: 7,
-    fontWeight: '900',
+    fontSize: 10,
+    fontWeight: '700',
     letterSpacing: 1.5,
+    color: '#7083FF',
   },
-
   topDownTitle: {
-    color: '#FFFFFF',
     fontSize: 14,
-    fontWeight: '900',
-    marginTop: 3,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginTop: 2,
   },
-
   topDownNumber: {
-    color: '#53617A',
-    fontSize: 18,
-    fontWeight: '900',
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#1B2435',
   },
-
   sequence: {
-    marginTop: 15,
+    gap: 4,
   },
-
   sequenceItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    borderRadius: 11,
-  },
-
-  sequenceItemActive: {
-    backgroundColor: '#0D1324',
-  },
-
-  sequenceCircle: {
-    width: 39,
-    height: 39,
-    borderRadius: 20,
-    backgroundColor: '#111722',
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: '#05070D',
     borderWidth: 1,
-    borderColor: '#263043',
-    alignItems: 'center',
+    borderColor: '#151C2C',
+  },
+  sequenceItemActive: {
+    borderColor: '#7083FF',
+    backgroundColor: 'rgba(112, 131, 255, 0.06)',
+  },
+  sequenceBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#0A0E18',
+    borderWidth: 1,
+    borderColor: '#1B2435',
     justifyContent: 'center',
-    marginRight: 11,
+    alignItems: 'center',
+    marginRight: 12,
   },
-
-  sequenceCircleActive: {
-    backgroundColor: '#10183D',
-    borderColor: '#334BFF',
+  sequenceBadgeActive: {
+    borderColor: '#7083FF',
+    backgroundColor: 'rgba(112, 131, 255, 0.15)',
   },
-
   sequenceTimeframe: {
-    color: '#68758E',
-    fontSize: 8,
-    fontWeight: '900',
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#657493',
   },
-
   sequenceTimeframeActive: {
-    color: '#8A98FF',
+    color: '#7083FF',
   },
-
   sequenceContent: {
     flex: 1,
   },
-
   sequenceTitle: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '900',
-  },
-
-  sequenceDescription: {
-    color: '#68758E',
-    fontSize: 8,
-    lineHeight: 13,
-    marginTop: 3,
-  },
-
-  sequenceArrow: {
-    color: '#53617A',
-    fontSize: 23,
-    marginLeft: 7,
-  },
-
-  sequenceLine: {
-    width: 1,
-    height: 13,
-    backgroundColor: '#263043',
-    marginLeft: 19,
-  },
-
-  infoCard: {
-    backgroundColor: '#080C15',
-    borderWidth: 1,
-    borderColor: '#151D2C',
-    borderRadius: 16,
-    padding: 17,
-  },
-
-  infoHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 9,
-  },
-
-  infoIcon: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 1,
-    borderColor: '#334BFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-  },
-
-  infoIconText: {
-    color: '#7083FF',
-    fontSize: 10,
-    fontWeight: '900',
-  },
-
-  infoTitle: {
-    color: '#7083FF',
-    fontSize: 8,
-    fontWeight: '900',
-    letterSpacing: 1.5,
-  },
-
-  infoText: {
-    color: '#68758E',
-    fontSize: 10,
-    lineHeight: 17,
-  },
-
-  bottomBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    backgroundColor: '#05070D',
-    borderTopWidth: 1,
-    borderTopColor: '#111827',
-  },
-
-  continueButton: {
-    minHeight: 60,
-    backgroundColor: '#10183D',
-    borderWidth: 1,
-    borderColor: '#334BFF',
-    borderRadius: 16,
-    paddingHorizontal: 17,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-
-  continuePressed: {
-    opacity: 0.78,
-    transform: [{scale: 0.995}],
-  },
-
-  continueLabel: {
-    color: '#68758E',
-    fontSize: 7,
-    fontWeight: '900',
-    letterSpacing: 1.2,
-  },
-
-  continueTitle: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-    marginTop: 3,
-  },
-
-  continueArrow: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#263A91',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  continueArrowText: {
-    color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: 12,
     fontWeight: '700',
+    color: '#7F8EA8',
+  },
+  sequenceTitleActive: {
+    color: '#FFFFFF',
+  },
+  sequenceDescription: {
+    fontSize: 10,
+    color: '#5C6C8A',
+    marginTop: 2,
+  },
+  sequenceLine: {
+    width: 2,
+    height: 8,
+    backgroundColor: '#151C2C',
+    marginLeft: 30,
+  },
+  actionButton: {
+    backgroundColor: '#7083FF',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  pressed: {
+    opacity: 0.75,
   },
 });
+

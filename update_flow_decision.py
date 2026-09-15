@@ -1,4 +1,14 @@
-﻿import React, {useEffect, useState, useCallback} from 'react';
+import os
+
+target = os.path.join("src", "screens", "flow", "FlowDecisionScreen.tsx")
+if not os.path.exists(target):
+    target = os.path.join("mobile", "src", "screens", "flow", "FlowDecisionScreen.tsx")
+
+if not os.path.exists(target):
+    print(f"[ERROR] Could not find {target}")
+    exit(1)
+
+content = """import React, {useEffect, useState, useCallback} from 'react';
 import {
   Pressable,
   ScrollView,
@@ -146,7 +156,7 @@ export default function FlowDecisionScreen({
               pressed && styles.pressed,
             ]}
           >
-            <Text style={styles.backIcon}>â€¹</Text>
+            <Text style={styles.backIcon}>‹</Text>
           </Pressable>
 
           <View style={styles.headerText}>
@@ -319,7 +329,7 @@ export default function FlowDecisionScreen({
             <View style={styles.inputContent}>
               <Text style={styles.inputTitle}>MARKET ANALYSIS</Text>
               <Text style={styles.inputDescription}>
-                H4 â†’ H1 â†’ M15 top-down analysis
+                H4 → H1 → M15 top-down analysis
               </Text>
             </View>
             <Text style={styles.inputStatus}>RECEIVED</Text>
@@ -404,7 +414,7 @@ export default function FlowDecisionScreen({
           </View>
 
           <View style={styles.continueArrow}>
-            <Text style={styles.arrowIcon}>â†’</Text>
+            <Text style={styles.arrowIcon}>→</Text>
           </View>
         </Pressable>
       </View>
@@ -873,8 +883,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
-  pressed: {
-    opacity: 0.7,
-  },
 });
+"""
 
+with open(target, "w", encoding="utf-8") as f:
+    f.write(content)
+
+print(f"[OK] Successfully updated {target}")

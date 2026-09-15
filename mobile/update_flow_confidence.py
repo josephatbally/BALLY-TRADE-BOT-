@@ -1,4 +1,14 @@
-import React, {useEffect, useState, useCallback} from 'react';
+import os
+
+target = os.path.join("src", "screens", "flow", "FlowConfidenceScreen.tsx")
+if not os.path.exists(target):
+    target = os.path.join("mobile", "src", "screens", "flow", "FlowConfidenceScreen.tsx")
+
+if not os.path.exists(target):
+    print(f"[ERROR] Could not find {target}")
+    exit(1)
+
+content = """import React, {useEffect, useState, useCallback} from 'react';
 import {
   Pressable,
   ScrollView,
@@ -904,3 +914,9 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
 });
+"""
+
+with open(target, "w", encoding="utf-8") as f:
+    f.write(content)
+
+print(f"[OK] Successfully updated {target}")

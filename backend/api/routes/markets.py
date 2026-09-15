@@ -1,21 +1,19 @@
-import time
-_analysis_cache = {}
-_CACHE_TTL = 30  # seconds
 
 """
 BALLY FLOW API - Market Routes
 """
-
 from __future__ import annotations
 
 from typing import Optional
-
 from fastapi import APIRouter, HTTPException, Query
 
 from backend.main import (
     run_market,
     run_all_markets,
 )
+import time
+_analysis_cache = {}
+_CACHE_TTL = 30  # seconds
 
 from backend.trading_engine.scanner import scanner_info
 
