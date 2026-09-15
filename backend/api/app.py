@@ -1,35 +1,19 @@
-
 """
 BALLY FLOW API
 
 HTTP API layer for the BALLY FLOW mobile application.
-
-IMPORTANT
----------
-This module is an API/presentation layer.
-
-It does NOT:
-    - calculate SMC
-    - calculate confluence
-    - create trading decisions
-    - calculate risk
-    - calculate position size
-    - place MT5 orders
-
-Those responsibilities remain inside the existing trading engine.
-
-The API delegates application operations to backend.main.
 """
 
 from __future__ import annotations
-
-from backend import main as application
-from backend.api.routes import orders
 
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from backend import main as application
+from backend.api.routes import orders
+from backend.trading_engine.auto_trader import auto_trader
 
 from .routes.account import router as account_router
 from .routes.application import router as application_router
@@ -46,28 +30,20 @@ APP_VERSION = "1.0.0"
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """
-    Start BALLY FLOW application orchestration.
-
-    This initializes the shared MT5 connection.
-    It does not execute trades.
+    Start BALLY FLOW orchestration and the auto-trader background daemon.
     """
     application.start()
+    await auto_trader.start()
     yield
+    await auto_trader.stop()
 
 
 app = FastAPI(
     title=APP_NAME,
     version=APP_VERSION,
-    description=(
-        "Backend API for the BALLY FLOW mobile application."
-    ),
+    description="Backend API for the BALLY FLOW mobile application.",
     lifespan=lifespan,
 )
-
-
-# =====================================================================
-# CORS
-# =====================================================================
 
 app.add_middleware(
     CORSMiddleware,
@@ -77,54 +53,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# =====================================================================
-# ROUTES
-# =====================================================================
-
-app.include_router(
-    health_router,
-    prefix="/health",
-    tags=["Health"],
-)
-
-app.include_router(
-    application_router,
-    prefix="/api/v1/app",
-    tags=["Application"],
-)
-
-app.include_router(
-    positions_router,
-    prefix="/api/v1/positions",
-    tags=["Positions"],
-)
-
-app.include_router(
-    history_router,
-    prefix="/api/v1/history",
-    tags=["History"],
-)
-
-app.include_router(
-    account_router,
-    prefix="/api/v1/account",
-    tags=["Account"],
-)
-
-app.include_router(
-    markets_router,
-    prefix="/api/v1/markets",
-    tags=["Markets"],
-)
-
-app.include_router(
-    flow_router,
-    prefix="/api/v1",
-    tags=["Flow"],
-)
-
-
+app.include_router(health_router, prefix="/health", tags=["Health"])
+app.include_router(application_router, prefix="/api/v1/app", tags=["Application"])
+app.include_router(positions_router, prefix="/api/v1/positions", tags=["Positions"])
+app.include_router(history_router, prefix="/api/v1/history", tags=["History"])
+app.include_router(account_router, prefix="/api/v1/account", tags=["Account"])
+app.include_router(markets_router, prefix="/api/v1/markets", tags=["Markets"])
+app.include_router(flow_router, prefix="/api/v1", tags=["Flow"])
+app.include_router(orders.router)
 
 
 @app.get("/")
@@ -134,6 +70,3 @@ def root():
         "version": APP_VERSION,
         "status": "ONLINE",
     }
-
-
-app.include_router(orders.router)

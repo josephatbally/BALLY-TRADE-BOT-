@@ -1,137 +1,112 @@
-
 """
 BALLY FLOW API - Application Routes
 """
 
 from __future__ import annotations
 
+from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.main import (
     app as application,
 )
-
 from backend.trading_engine.modes.mode_controller import (
     TradingMode,
 )
-
+from backend.trading_engine.auto_trader import auto_trader
 
 router = APIRouter()
 
-
-# =====================================================================
-# REQUEST SCHEMAS
-# =====================================================================
 
 class ModeRequest(BaseModel):
     mode: TradingMode
 
 
-# =====================================================================
-# STATUS
-# =====================================================================
+class AutoTradeToggleRequest(BaseModel):
+    enabled: bool
+
+
+class BotSettingsRequest(BaseModel):
+    min_confidence: Optional[float] = None
+    risk_per_trade_pct: Optional[float] = None
+    max_positions: Optional[int] = None
+    scan_interval_seconds: Optional[int] = None
+
 
 @router.get("/status")
 def get_status():
     """
-    Return complete BALLY FLOW application status.
+    Return complete application status.
     """
-
     return application.status()
 
-
-# =====================================================================
-# START
-# =====================================================================
 
 @router.post("/start")
 def start_application():
     """
-    Start BALLY FLOW application orchestration.
+    Start application orchestration.
     """
-
     return application.start()
 
-
-# =====================================================================
-# STOP
-# =====================================================================
 
 @router.post("/stop")
 def stop_application():
     """
-    Stop BALLY FLOW application orchestration.
+    Stop application orchestration.
     """
-
     return application.stop()
 
-
-# =====================================================================
-# MODE
-# =====================================================================
 
 @router.get("/mode")
 def get_mode():
     """
-    Return the currently selected trading mode.
+    Return active trading mode.
     """
-
-    return {
-        "mode": application.mode.value,
-        "technical_enabled": application.is_technical(),
-        "hybrid_enabled": application.is_hybrid(),
-    }
+    return {"mode": application.mode.value}
 
 
 @router.put("/mode")
 def set_mode(request: ModeRequest):
     """
-    Change BALLY FLOW trading mode.
-
-    Only:
-        technical
-        hybrid
-
-    are accepted.
+    Switch active trading mode.
     """
+    return application.set_mode(request.mode)
 
-    try:
-        selected_mode = application.set_mode(
-            request.mode
-        )
 
-        return {
-            "status": "UPDATED",
-            "mode": selected_mode.value,
-            "technical_enabled": application.is_technical(),
-            "hybrid_enabled": application.is_hybrid(),
-        }
-
-    except Exception as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=str(exc),
-        ) from exc
-class AutoTradeRequest(BaseModel):
-    enabled: bool
-
-@router.get("/auto-trade")
-def get_auto_trade_status():
+@router.get("/bot/telemetry")
+def get_bot_telemetry():
     """
-    Return whether automatic trading is currently enabled.
+    Return live telemetry, heartbeat, and audit logs from the auto-trader daemon.
     """
+    return auto_trader.get_telemetry()
+
+
+@router.post("/bot/toggle")
+def toggle_auto_trade(request: AutoTradeToggleRequest):
+    """
+    Toggle automatic trading execution on or off.
+    """
+    enabled = auto_trader.set_enabled(request.enabled)
+    application.set_auto_trading(enabled)
     return {
-        "auto_trading_enabled": application.auto_trading_enabled
+        "status": "OK",
+        "auto_trading_enabled": enabled,
     }
 
-@router.post("/auto-trade")
-def toggle_auto_trade(request: AutoTradeRequest):
+
+@router.post("/bot/settings")
+def update_bot_settings(request: BotSettingsRequest):
     """
-    Turn automatic MT5 trade execution on or off.
+    Update confidence threshold, risk percentage, and position limits.
     """
-    enabled = application.set_auto_trading(request.enabled)
+    updated = auto_trader.update_settings(
+        min_confidence=request.min_confidence,
+        risk_per_trade_pct=request.risk_per_trade_pct,
+        max_positions=request.max_positions,
+        scan_interval_seconds=request.scan_interval_seconds,
+    )
     return {
-        "status": "UPDATED",
-        "auto_trading_enabled": enabled
+        "status": "OK",
+        "settings": updated,
     }

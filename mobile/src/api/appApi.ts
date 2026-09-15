@@ -214,3 +214,38 @@ export function stopApplication() {
     method: 'POST',
   });
 }
+
+export type BotLogEntry = {
+  timestamp: string;
+  level: string;
+  message: string;
+  details?: Record<string, any>;
+};
+
+export type BotTelemetryResponse = {
+  enabled: boolean;
+  running: boolean;
+  mt5_connected: boolean;
+  scan_interval: number;
+  min_confidence: number;
+  max_positions: number;
+  current_positions_count: number;
+  risk_pct: number;
+  default_lot: number;
+  last_scan_time: string | null;
+  balance: number;
+  equity: number;
+  recent_logs: BotLogEntry[];
+  last_analysis_summary?: Record<string, any>;
+};
+
+export function getBotTelemetry() {
+  return apiRequest<BotTelemetryResponse>('/api/v1/app/bot/telemetry');
+}
+
+export function toggleBotAutoTrade(enabled: boolean) {
+  return apiRequest<{status: string; auto_trading_enabled: boolean}>('/api/v1/app/bot/toggle', {
+    method: 'POST',
+    body: JSON.stringify({enabled}),
+  });
+}

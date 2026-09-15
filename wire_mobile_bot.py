@@ -1,4 +1,79 @@
-import React, {useCallback, useEffect, useState} from 'react';
+import os
+
+# -------------------------------------------------------------
+# 1. Wire mobile/src/api/appApi.ts
+# -------------------------------------------------------------
+app_api_candidates = [
+    os.path.join("mobile", "src", "api", "appApi.ts"),
+    os.path.join("src", "api", "appApi.ts"),
+]
+app_api_path = next((p for p in app_api_candidates if os.path.exists(p)), None)
+
+if not app_api_path:
+    print("[ERROR] Could not locate appApi.ts")
+    exit(1)
+
+with open(app_api_path, "r", encoding="utf-8") as f:
+    api_content = f.read()
+
+bot_telemetry_snippet = """
+export type BotLogEntry = {
+  timestamp: string;
+  level: string;
+  message: string;
+  details?: Record<string, any>;
+};
+
+export type BotTelemetryResponse = {
+  enabled: boolean;
+  running: boolean;
+  mt5_connected: boolean;
+  scan_interval: number;
+  min_confidence: number;
+  max_positions: number;
+  current_positions_count: number;
+  risk_pct: number;
+  default_lot: number;
+  last_scan_time: string | null;
+  balance: number;
+  equity: number;
+  recent_logs: BotLogEntry[];
+  last_analysis_summary?: Record<string, any>;
+};
+
+export function getBotTelemetry() {
+  return apiRequest<BotTelemetryResponse>('/api/v1/app/bot/telemetry');
+}
+
+export function toggleBotAutoTrade(enabled: boolean) {
+  return apiRequest<{status: string; auto_trading_enabled: boolean}>('/api/v1/app/bot/toggle', {
+    method: 'POST',
+    body: JSON.stringify({enabled}),
+  });
+}
+"""
+
+if "getBotTelemetry" not in api_content:
+    with open(app_api_path, "a", encoding="utf-8") as f:
+        f.write("\n" + bot_telemetry_snippet.strip() + "\n")
+    print(f"[OK] Appended bot telemetry methods to {app_api_path}")
+else:
+    print(f"[OK] {app_api_path} already has bot telemetry methods")
+
+# -------------------------------------------------------------
+# 2. Wire mobile/src/screens/BotControlScreen.tsx
+# -------------------------------------------------------------
+bot_screen_candidates = [
+    os.path.join("mobile", "src", "screens", "BotControlScreen.tsx"),
+    os.path.join("src", "screens", "BotControlScreen.tsx"),
+]
+bot_screen_path = next((p for p in bot_screen_candidates if os.path.exists(p)), None)
+
+if not bot_screen_path:
+    print("[ERROR] Could not locate BotControlScreen.tsx")
+    exit(1)
+
+bot_screen_content = """import React, {useCallback, useEffect, useState} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -542,3 +617,8 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
   },
 });
+"""
+
+with open(bot_screen_path, "w", encoding="utf-8") as f:
+    f.write(bot_screen_content)
+print(f"[OK] Successfully wrote {bot_screen_path}")
