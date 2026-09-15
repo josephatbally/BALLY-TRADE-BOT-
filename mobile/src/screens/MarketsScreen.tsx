@@ -356,7 +356,7 @@ export default function MarketsScreen({ navigation }: any) {
                         { color: isHighConviction ? '#35E68A' : '#7083FF' },
                       ]}
                     >
-                      {market.confluencePct}% {isHighConviction ? 'Â· HIGH CONFIRMATION' : 'Â· NEUTRAL'}
+                      {market.confluencePct}% {isHighConviction ? '· HIGH CONFIRMATION' : '· NEUTRAL'}
                     </Text>
                   </View>
 
@@ -380,7 +380,7 @@ export default function MarketsScreen({ navigation }: any) {
                     style={({ pressed }) => [styles.actionBtnSecondary, pressed && styles.pressed]}
                   >
                     <Text allowFontScaling={false} style={styles.actionBtnSecondaryText}>
-                      âš¡ EXECUTE
+                       EXECUTE
                     </Text>
                   </Pressable>
 
@@ -389,7 +389,7 @@ export default function MarketsScreen({ navigation }: any) {
                     style={({ pressed }) => [styles.actionBtnPrimary, pressed && styles.pressed]}
                   >
                     <Text allowFontScaling={false} style={styles.actionBtnPrimaryText}>
-                      OPEN IN FLOW âž”
+                      OPEN IN FLOW 
                     </Text>
                   </Pressable>
                 </View>

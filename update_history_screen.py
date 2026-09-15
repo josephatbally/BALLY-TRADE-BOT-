@@ -1,4 +1,69 @@
-﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import os
+import sys
+
+def find_paths():
+    if os.path.exists("src/screens/HistoryScreen.tsx"):
+        return "src/api/historyApi.ts", "src/screens/HistoryScreen.tsx"
+    elif os.path.exists("mobile/src/screens/HistoryScreen.tsx"):
+        return "mobile/src/api/historyApi.ts", "mobile/src/screens/HistoryScreen.tsx"
+    else:
+        print("[ERROR] Could not locate HistoryScreen.tsx. Run from 'mobile' or repository root.")
+        sys.exit(1)
+
+api_path, screen_path = find_paths()
+
+API_CONTENT = """import { apiRequest } from './client';
+
+export interface HistorySummaryResponse {
+  status: string;
+  connected: boolean;
+  days: number;
+  win_rate: number;
+  total_trades: number;
+  wins: number;
+  losses: number;
+  profit_factor: number;
+  net_profit: number;
+}
+
+export interface HistoryDeal {
+  ticket: number;
+  order: number;
+  position_id: number;
+  symbol: string;
+  type: number; // 0 = BUY, 1 = SELL
+  entry: number; // 0 = IN, 1 = OUT
+  volume: number;
+  price: number;
+  profit: number;
+  swap: number;
+  commission: number;
+  fee: number;
+  comment?: string | null;
+  time?: string | null;
+  time_msc?: number;
+}
+
+export interface HistoryDealsResponse {
+  status: string;
+  connected: boolean;
+  days: number;
+  symbol?: string | null;
+  count: number;
+  deals: HistoryDeal[];
+}
+
+export async function getHistorySummary(days: number = 7): Promise<HistorySummaryResponse> {
+  return apiRequest<HistorySummaryResponse>(`/api/v1/history/summary?days=${days}`);
+}
+
+export async function getHistoryDeals(days: number = 30, symbol?: string): Promise<HistoryDealsResponse> {
+  const query = symbol ? `?days=${days}&symbol=${encodeURIComponent(symbol)}` : `?days=${days}`;
+  return apiRequest<HistoryDealsResponse>(`/api/v1/history${query}`);
+}
+"""
+
+SCREEN_CONTENT = """import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -108,7 +173,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="light-content" backgroundColor="#05070D" />
 
       {/* Top Header Bar */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 16) }]}>
@@ -118,7 +183,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
           hitSlop={12}
         >
           <Text style={styles.backButtonText} allowFontScaling={false}>
-            â€¹
+            ‹
           </Text>
         </Pressable>
         <View style={styles.headerTitleWrap}>
@@ -358,7 +423,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
                       PRICE
                     </Text>
                     <Text style={styles.detailVal} allowFontScaling={false}>
-                      {deal.price ? deal.price.toFixed(5).replace(/0+$/, '').replace(/\.$/, '') : '--'}
+                      {deal.price ? deal.price.toFixed(5).replace(/0+$/, '').replace(/\\.$/, '') : '--'}
                     </Text>
                   </View>
                   <View style={styles.detailCol}>
@@ -726,3 +791,12 @@ const styles = StyleSheet.create({
     fontSize: 10,
   },
 });
+"""
+
+with open(api_path, "w", encoding="utf-8") as f:
+    f.write(API_CONTENT)
+print(f"[OK] Successfully updated {api_path}")
+
+with open(screen_path, "w", encoding="utf-8") as f:
+    f.write(SCREEN_CONTENT)
+print(f"[OK] Successfully updated {screen_path}")

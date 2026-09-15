@@ -526,7 +526,7 @@ export default function DashboardScreen({
   };
 
   const openHistory = () => {
-    (navigation as any).navigate('History');
+    (navigation as any).navigate('History', user);
   };
 
   const openMarkets = () => {
@@ -1136,7 +1136,7 @@ export default function DashboardScreen({
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>LIVE MARKETS (6 PAIRS)</Text>
           <Pressable onPress={openMarkets}>
-            <Text style={styles.viewAll}>SCANNER ?</Text>
+            <Text style={styles.viewAll}>SCANNER </Text>
           </Pressable>
         </View>
 

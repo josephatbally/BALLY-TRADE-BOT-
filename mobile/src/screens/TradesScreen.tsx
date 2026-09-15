@@ -315,7 +315,7 @@ export default function TradesScreen() {
             >
               <Text style={styles.executeBtnTitle} allowFontScaling={false}>BUY / LONG</Text>
               <Text style={styles.executeBtnSub} allowFontScaling={false}>
-                @ {displayPrice}
+                 {displayPrice}
               </Text>
             </TouchableOpacity>
 
@@ -333,7 +333,7 @@ export default function TradesScreen() {
             >
               <Text style={styles.executeBtnTitle} allowFontScaling={false}>SELL / SHORT</Text>
               <Text style={styles.executeBtnSub} allowFontScaling={false}>
-                @ {displayPrice}
+                 {displayPrice}
               </Text>
             </TouchableOpacity>
           </View>

@@ -1,6 +1,6 @@
-﻿import os
+import os
 
-target_path = os.path.join("mobile", "src", "screens", "MarketsScreen.tsx")
+target_path = os.path.join("src", "screens", "MarketsScreen.tsx")
 
 code = '''import React, { useState, useEffect, useCallback } from 'react';
 import {
@@ -244,7 +244,7 @@ export default function MarketsScreen({ navigation }: any) {
                   allowFontScaling={false}
                   style={[styles.filterPillText, active && styles.filterPillTextActive]}
                 >
-                  {filter === 'HOT' ? 'âš¡ HOT SETUPS' : filter}
+                  {filter === 'HOT' ? '⚡ HOT SETUPS' : filter}
                 </Text>
               </Pressable>
             );
@@ -360,7 +360,7 @@ export default function MarketsScreen({ navigation }: any) {
                         { color: isHighConviction ? '#35E68A' : '#7083FF' },
                       ]}
                     >
-                      {market.confluencePct}% {isHighConviction ? 'Â· HIGH CONFIRMATION' : 'Â· NEUTRAL'}
+                      {market.confluencePct}% {isHighConviction ? '· HIGH CONFIRMATION' : '· NEUTRAL'}
                     </Text>
                   </View>
 
@@ -384,7 +384,7 @@ export default function MarketsScreen({ navigation }: any) {
                     style={({ pressed }) => [styles.actionBtnSecondary, pressed && styles.pressed]}
                   >
                     <Text allowFontScaling={false} style={styles.actionBtnSecondaryText}>
-                      âš¡ EXECUTE
+                      ⚡ EXECUTE
                     </Text>
                   </Pressable>
 
@@ -393,7 +393,7 @@ export default function MarketsScreen({ navigation }: any) {
                     style={({ pressed }) => [styles.actionBtnPrimary, pressed && styles.pressed]}
                   >
                     <Text allowFontScaling={false} style={styles.actionBtnPrimaryText}>
-                      OPEN IN FLOW âž”
+                      OPEN IN FLOW ➔
                     </Text>
                   </Pressable>
                 </View>
