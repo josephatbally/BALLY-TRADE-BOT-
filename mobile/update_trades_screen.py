@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import os
+
+target_path = os.path.join("src", "screens", "TradesScreen.tsx")
+if not os.path.exists(target_path):
+    target_path = os.path.join("mobile", "src", "screens", "TradesScreen.tsx")
+
+content = """import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -796,3 +802,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+"""
+
+with open(target_path, "w", encoding="utf-8") as f:
+    f.write(content)
+
+print(f"[OK] Successfully updated {target_path} with Flow aesthetic Cockpit")
