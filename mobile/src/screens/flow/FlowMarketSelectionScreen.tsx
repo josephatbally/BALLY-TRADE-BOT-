@@ -180,7 +180,7 @@ export default function FlowMarketSelectionScreen({
                 ]}
               >
                 {(activeQuote?.change_pct ?? (activeQuote as any)?.raw_change ?? 0) != null
-                  ? `${activeQuote.change_pct >= 0 ? '+' : ''}${activeQuote.change_pct.toFixed(2)}%`
+                  ? `${((activeQuote?.change_pct ?? (activeQuote as any)?.raw_change ?? 0) >= 0 ? "+" : "")}${Number(activeQuote?.change_pct ?? (activeQuote as any)?.raw_change ?? 0).toFixed(2)}%`
                   : '0.00%'}
               </Text>
             </View>
@@ -789,3 +789,5 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 });
+
+
