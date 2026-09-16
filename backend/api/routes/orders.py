@@ -14,8 +14,8 @@ from pydantic import BaseModel, Field
 
 from backend.trading_engine.execution.live_executor import (
     execute_live_trade,
-    close_live_position,
-    close_all_live_positions,
+    close_position,
+    close_all_positions,
 )
 from backend.trading_engine.execution_pipeline import execute_pipeline
 from backend.trading_engine.tenant_router import tenant_router
@@ -113,7 +113,7 @@ def execute_order(request: ExecuteOrderRequest, current_user: Optional[Dict[str,
 
 @router.post("/close/{ticket}")
 def close_order(ticket: int) -> Dict[str, Any]:
-    res = close_live_position(ticket=ticket)
+    res = close_position(ticket=ticket)
     if not res.get("closed"):
         raise HTTPException(status_code=400, detail=res.get("reason", "Failed to close position"))
     return res
@@ -121,4 +121,4 @@ def close_order(ticket: int) -> Dict[str, Any]:
 
 @router.post("/close-all")
 def close_all_orders(symbol: Optional[str] = Query(None, description="Optional symbol filter")) -> Dict[str, Any]:
-    return close_all_live_positions(symbol=symbol)
+    return close_all_positions()
