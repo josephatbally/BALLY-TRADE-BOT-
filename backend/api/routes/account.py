@@ -57,6 +57,12 @@ def get_account() -> Dict[str, Any]:
         if account is None:
             raise RuntimeError("MT5 account information is unavailable.")
 
+        try:
+            positions = get_positions() or []
+            open_trades_count = len(positions)
+        except Exception:
+            open_trades_count = 0
+
         company = getattr(account, "company", "MetaQuotes Software Corp.")
         server = getattr(account, "server", "Unknown Server")
         login = getattr(account, "login", 0)
