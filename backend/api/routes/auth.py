@@ -1,6 +1,7 @@
 """
-BALLY FLOW - User Authentication & OTP Verification Router
-Handles registration, 6-digit code generation, email/SMS dispatch, and admin oversight.
+BALLY FLOW - User Authentication & OTP Verification Router (Phase 2 & 3)
+Handles registration, 6-digit OTP codes, JWT session token generation,
+and multi-tenant broker profile persistence.
 """
 
 from __future__ import annotations
@@ -11,10 +12,15 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel
 
 from backend.database import get_db_connection
+from backend.security.jwt_auth import (
+    create_access_token, 
+    get_current_user,
+    get_current_user_optional
+)
 
 router = APIRouter()
 
@@ -25,20 +31,28 @@ class RegisterInitiateRequest(BaseModel):
     email: str
     phone: str
     country_code: str = "+255"
-    channel: str = "email"  # 'email', 'sms', or 'whatsapp'
+    channel: str = "email"
 
 class VerifyCodeRequest(BaseModel):
-    identifier: str  # email or phone
+    identifier: str
     code: str
 
 class ResendCodeRequest(BaseModel):
     identifier: str
     channel: str = "email"
 
+class BrokerProfileRequest(BaseModel):
+    broker_server: str
+    broker_name: str
+    account_number: str
+    password: Optional[str] = None
+    currency: str = "USD"
+    leverage: int = 100
+    is_demo: bool = True
+
 # ----------------- DISPATCH HELPERS -----------------
 
 def send_email_otp(to_email: str, code: str, user_name: str) -> bool:
-    """Send branded 6-digit verification code via SMTP if configured, else log."""
     smtp_host = os.getenv("SMTP_HOST", "")
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_user = os.getenv("SMTP_USER", "")
@@ -89,17 +103,12 @@ def send_email_otp(to_email: str, code: str, user_name: str) -> bool:
 
 @router.post("/register-initiate")
 def register_initiate(req: RegisterInitiateRequest):
-    """
-    Step 1: Record trader registration details, generate 6-digit OTP,
-    store in SQLite database, and dispatch via email/SMS.
-    """
     full_name = req.full_name.strip()
     email = req.email.strip().lower()
     phone = req.phone.strip()
     country_code = req.country_code.strip()
     channel = req.channel.strip().lower()
 
-    # Generate secure 6-digit code
     code = f"{secrets.randbelow(900000) + 100000}"
     expires_at = datetime.utcnow() + timedelta(minutes=5)
 
@@ -107,7 +116,6 @@ def register_initiate(req: RegisterInitiateRequest):
     cursor = conn.cursor()
 
     try:
-        # 1. Upsert User
         cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
         existing_user = cursor.fetchone()
 
@@ -119,7 +127,6 @@ def register_initiate(req: RegisterInitiateRequest):
                 WHERE id = ?
             """, (full_name, phone, country_code, user_id))
         else:
-            # First user is admin, subsequent are traders
             cursor.execute("SELECT COUNT(*) AS total FROM users")
             user_count = cursor.fetchone()["total"]
             role = "admin" if user_count == 0 else "trader"
@@ -130,14 +137,12 @@ def register_initiate(req: RegisterInitiateRequest):
             """, (full_name, email, phone, country_code, role))
             user_id = cursor.lastrowid
 
-        # 2. Invalidate any older unused codes for this email
         cursor.execute("""
             UPDATE verification_codes 
             SET is_used = 1 
             WHERE identifier = ? AND is_used = 0
         """, (email,))
 
-        # 3. Insert new 6-digit verification record
         cursor.execute("""
             INSERT INTO verification_codes (user_id, identifier, channel, code, expires_at, attempts, is_used)
             VALUES (?, ?, ?, ?, ?, 0, 0)
@@ -145,12 +150,10 @@ def register_initiate(req: RegisterInitiateRequest):
 
         conn.commit()
 
-        # 4. Dispatch verification code
         email_sent = False
         if channel == "email" or "@" in email:
             email_sent = send_email_otp(email, code, full_name)
 
-        # Prominent console logging for admin / developer visibility
         print("=" * 68)
         print(f"[BALLY FLOW AUTH] 6-Digit OTP for {email} ({country_code} {phone}):")
         print(f">>>  {code}  <<<")
@@ -164,7 +167,7 @@ def register_initiate(req: RegisterInitiateRequest):
             "channel": channel,
             "email_sent": email_sent,
             "expires_in_seconds": 300,
-            "dev_code": code,  # Provided for immediate testing & offline validation
+            "dev_code": code,
         }
     except Exception as exc:
         conn.rollback()
@@ -174,9 +177,6 @@ def register_initiate(req: RegisterInitiateRequest):
 
 @router.post("/verify-code")
 def verify_code(req: VerifyCodeRequest):
-    """
-    Step 2: Validate the 6-digit OTP from database and activate user account.
-    """
     identifier = req.identifier.strip().lower()
     code = req.code.strip()
 
@@ -184,7 +184,6 @@ def verify_code(req: VerifyCodeRequest):
     cursor = conn.cursor()
 
     try:
-        # Fetch the latest active code for this identifier
         cursor.execute("""
             SELECT * FROM verification_codes
             WHERE identifier = ? AND is_used = 0
@@ -198,7 +197,6 @@ def verify_code(req: VerifyCodeRequest):
                 detail="No pending verification code found. Please request a new code."
             )
 
-        # Check attempts
         if otp_record["attempts"] >= 5:
             cursor.execute("UPDATE verification_codes SET is_used = 1 WHERE id = ?", (otp_record["id"],))
             conn.commit()
@@ -207,7 +205,6 @@ def verify_code(req: VerifyCodeRequest):
                 detail="Maximum verification attempts exceeded. Please request a new code."
             )
 
-        # Check expiration
         expires_at = datetime.strptime(otp_record["expires_at"], "%Y-%m-%d %H:%M:%S")
         if datetime.utcnow() > expires_at:
             cursor.execute("UPDATE verification_codes SET is_used = 1 WHERE id = ?", (otp_record["id"],))
@@ -217,7 +214,6 @@ def verify_code(req: VerifyCodeRequest):
                 detail="Verification code has expired. Please request a new one."
             )
 
-        # Validate code match
         if otp_record["code"] != code:
             cursor.execute("""
                 UPDATE verification_codes SET attempts = attempts + 1 WHERE id = ?
@@ -228,7 +224,7 @@ def verify_code(req: VerifyCodeRequest):
                 detail="Invalid verification code. Please check and try again."
             )
 
-        # Code is valid: Mark used and activate user
+        # Mark code used and activate trader
         cursor.execute("UPDATE verification_codes SET is_used = 1 WHERE id = ?", (otp_record["id"],))
         cursor.execute("""
             UPDATE users SET status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = ?
@@ -238,17 +234,28 @@ def verify_code(req: VerifyCodeRequest):
         user = cursor.fetchone()
         conn.commit()
 
+        # Phase 2: Create cryptographically signed JWT Session Token
+        user_id_str = str(user["id"])
+        access_token = create_access_token(
+            user_id=user_id_str,
+            email=user["email"],
+            role=user["role"]
+        )
+
         return {
             "status": "VERIFIED",
             "message": "Account successfully verified.",
+            "token": access_token,
+            "token_type": "bearer",
             "user": {
-                "id": str(user["id"]),
+                "id": user_id_str,
                 "full_name": user["full_name"],
                 "email": user["email"],
                 "phone": f"{user['country_code']} {user['phone']}",
                 "country_code": user["country_code"],
                 "role": user["role"],
                 "status": user["status"],
+                "token": access_token
             }
         }
     finally:
@@ -256,7 +263,6 @@ def verify_code(req: VerifyCodeRequest):
 
 @router.post("/resend-code")
 def resend_code(req: ResendCodeRequest):
-    """Resend a fresh 6-digit OTP code with rate-limit protection."""
     identifier = req.identifier.strip().lower()
     
     conn = get_db_connection()
@@ -267,7 +273,6 @@ def resend_code(req: ResendCodeRequest):
         if not user:
             raise HTTPException(status_code=404, detail="User record not found.")
 
-        # Rate check: 30-second cooldown
         cursor.execute("""
             SELECT created_at FROM verification_codes 
             WHERE identifier = ? ORDER BY id DESC LIMIT 1
@@ -301,16 +306,70 @@ def resend_code(req: ResendCodeRequest):
     finally:
         conn.close()
 
+@router.get("/me")
+def get_current_user_profile(user: Dict[str, Any] = Depends(get_current_user)):
+    """Phase 2: Protected endpoint that returns the caller's identity via JWT."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT broker_server, broker_name, account_number, currency, leverage, is_demo
+            FROM broker_profiles 
+            WHERE user_id = ? AND is_active = 1
+            ORDER BY id DESC LIMIT 1
+        """, (int(user["id"]),))
+        broker = cursor.fetchone()
+        return {
+            "user": user,
+            "broker": dict(broker) if broker else None
+        }
+    finally:
+        conn.close()
+
+@router.post("/broker-profile")
+def save_broker_profile(req: BrokerProfileRequest, user: Dict[str, Any] = Depends(get_current_user)):
+    """Phase 3: Persist MT5 Broker credentials scoped to this specific tenant."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE broker_profiles SET is_active = 0 WHERE user_id = ?
+        """, (int(user["id"]),))
+        
+        cursor.execute("""
+            INSERT INTO broker_profiles (user_id, broker_server, broker_name, account_number, password_encrypted, currency, leverage, is_demo, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+        """, (
+            int(user["id"]),
+            req.broker_server.strip(),
+            req.broker_name.strip(),
+            req.account_number.strip(),
+            req.password.strip() if req.password else None,
+            req.currency.strip().upper(),
+            req.leverage,
+            1 if req.is_demo else 0
+        ))
+        conn.commit()
+        return {
+            "status": "SAVED",
+            "message": "Broker profile successfully linked to trader account.",
+            "account_number": req.account_number.strip(),
+            "broker_server": req.broker_server.strip()
+        }
+    finally:
+        conn.close()
+
 @router.get("/admin/users")
-def get_all_users():
-    """Admin-only overview of registered users, their status, and recent OTP requests."""
+def get_all_users(admin: Dict[str, Any] = Depends(get_current_user_optional)):
+    """Admin-only overview of registered users and their status."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
         cursor.execute("""
             SELECT u.id, u.full_name, u.email, u.phone, u.country_code, u.role, u.status, u.created_at,
                    (SELECT code FROM verification_codes WHERE user_id = u.id ORDER BY id DESC LIMIT 1) as last_code,
-                   (SELECT channel FROM verification_codes WHERE user_id = u.id ORDER BY id DESC LIMIT 1) as last_channel
+                   (SELECT channel FROM verification_codes WHERE user_id = u.id ORDER BY id DESC LIMIT 1) as last_channel,
+                   (SELECT broker_server FROM broker_profiles WHERE user_id = u.id AND is_active = 1 ORDER BY id DESC LIMIT 1) as active_broker
             FROM users u
             ORDER BY u.id DESC
         """)

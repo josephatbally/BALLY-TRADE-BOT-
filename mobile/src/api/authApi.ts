@@ -1,10 +1,10 @@
 import { apiRequest } from './client';
 
 export interface RegisterInitiateInput {
-  full_name: string;
-  email: string;
-  phone: string;
-  country_code?: string;
+  full_name: str;
+  email: str;
+  phone: str;
+  country_code?: str;
   channel?: 'email' | 'sms' | 'whatsapp';
 }
 
@@ -26,6 +26,8 @@ export interface VerifyCodeInput {
 export interface VerifyCodeResponse {
   status: string;
   message: string;
+  token?: string;
+  token_type?: string;
   user: {
     id: string;
     full_name: string;
@@ -34,12 +36,23 @@ export interface VerifyCodeResponse {
     country_code: string;
     role: string;
     status: string;
+    token?: string;
   };
 }
 
 export interface ResendCodeInput {
   identifier: string;
   channel?: string;
+}
+
+export interface BrokerProfileInput {
+  broker_server: string;
+  broker_name: string;
+  account_number: string;
+  password?: string;
+  currency?: string;
+  leverage?: number;
+  is_demo?: boolean;
 }
 
 export async function initiateRegistration(
@@ -64,6 +77,15 @@ export async function resendSecurityCode(
   input: ResendCodeInput,
 ): Promise<RegisterInitiateResponse> {
   return apiRequest<RegisterInitiateResponse>('/api/v1/auth/resend-code', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function saveBrokerProfile(
+  input: BrokerProfileInput,
+): Promise<any> {
+  return apiRequest<any>('/api/v1/auth/broker-profile', {
     method: 'POST',
     body: JSON.stringify(input),
   });

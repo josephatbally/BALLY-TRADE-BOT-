@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   API_BASE_URL,
   API_TIMEOUT_MS,
@@ -19,19 +20,8 @@ export class ApiError extends Error {
 
 /**
  * Generic BALLY FLOW HTTP request client.
- *
- * Responsibilities:
- *
- * - Build API URLs
- * - Handle timeouts
- * - Handle network errors
- * - Parse JSON responses
- * - Convert API failures into ApiError
- *
- * Screens should use appApi.ts or marketsApi.ts
- * instead of calling fetch() directly.
+ * Phase 2: Automatically injects JWT Bearer token from AsyncStorage into every request.
  */
-
 export async function apiRequest<T>(
   path: string,
   options: RequestInit = {},
@@ -43,6 +33,26 @@ export async function apiRequest<T>(
   }, API_TIMEOUT_MS);
 
   try {
+    // Phase 2: Retrieve authenticated JWT token
+    let authToken = '';
+    try {
+      authToken = (await AsyncStorage.getItem('@bally_auth_token')) || '';
+      if (!authToken) {
+        const storedUser = await AsyncStorage.getItem('@bally_auth_user');
+        if (storedUser) {
+          const parsed = JSON.parse(storedUser);
+          authToken = parsed.token || '';
+        }
+      }
+    } catch {
+      // Non-blocking if storage is unavailable
+    }
+
+    const authHeaders: Record<string, string> = {};
+    if (authToken) {
+      authHeaders['Authorization'] = `Bearer ${authToken}`;
+    }
+
     const response = await fetch(
       `${API_BASE_URL}${path}`,
       {
@@ -50,6 +60,7 @@ export async function apiRequest<T>(
 
         headers: {
           Accept: 'application/json',
+          ...authHeaders,
 
           ...(options.body
             ? {
