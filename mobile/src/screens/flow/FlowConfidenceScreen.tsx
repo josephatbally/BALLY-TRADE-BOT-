@@ -64,7 +64,7 @@ export default function FlowConfidenceScreen({ navigation, route }: any) {
       {/* HEADER */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top + 8, 24) }]}>
         <Pressable onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Text allowFontScaling={false} style={styles.backButtonText}>â†</Text>
+          <Text allowFontScaling={false} style={styles.backButtonText}>‹</Text>
         </Pressable>
 
         <View style={styles.headerMiddle}>
@@ -185,7 +185,7 @@ export default function FlowConfidenceScreen({ navigation, route }: any) {
           onPress={() => navigation.navigate('FlowDecision', { symbol, overallScore })}
           style={styles.continueButton}
         >
-          <Text allowFontScaling={false} style={styles.continueButtonText}>CONTINUE TO DECISION (05) â†’</Text>
+          <Text allowFontScaling={false} style={styles.continueButtonText}>CONTINUE TO DECISION (05) );</Text>
         </Pressable>
       </ScrollView>
     </View>
