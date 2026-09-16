@@ -50,8 +50,6 @@ type Market = {
   points: number[];
 };
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
-
 /*
  * ============================================================
  * MARKET DATA
@@ -219,6 +217,10 @@ export default function DashboardScreen({
     React.useState(false);
 
   const [debugError, setDebugError] = React.useState<string | null>(null);
+
+  const toggleBotAutoTrade = async (_enabled: boolean): Promise<void> => {
+    // Bot state is currently managed locally until the backend endpoint is available.
+  };
   /*
    * Prevent state updates after the screen has unmounted.
    */

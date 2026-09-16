@@ -118,7 +118,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
           hitSlop={12}
         >
           <Text style={styles.backButtonText} allowFontScaling={false}>
-            â€¹
+            ‹
           </Text>
         </Pressable>
         <View style={styles.headerTitleWrap}>
