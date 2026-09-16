@@ -1,4 +1,12 @@
 """
+Wire Flow Route to Authoritative BALLY Trading Engine.
+Connects /api/v1/flow/{symbol} to analyze_market() and live MT5 status.
+"""
+import os
+
+flow_route_path = os.path.join("backend", "api", "routes", "flow.py")
+
+code = '''"""
 BALLY FLOW API - Flow Stage Intelligence Route
 Authoritatively integrated with BALLY Trading Engine (analyze_market).
 """
@@ -226,3 +234,9 @@ async def get_symbol_flow(symbol: str) -> Dict[str, Any]:
 
     _flow_cache[clean_sym] = {"timestamp": now, "data": payload}
     return payload
+'''
+
+with open(flow_route_path, "w", encoding="utf-8") as f:
+    f.write(code)
+
+print(f"[OK] Successfully wired {flow_route_path} to authoritative engine.")
