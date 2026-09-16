@@ -1,83 +1,122 @@
-﻿import React, {useState} from 'react';
+import React, { useState, useEffect } from "react";
 import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
   ScrollView,
   StatusBar,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import {NativeStackScreenProps} from '@react-navigation/native-stack';
-import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {
-  AuthenticatedUser,
-  RootStackParamList,
-} from '../navigation/navigationTypes';
-import AppLogo from '../components/branding/AppLogo';
-import {BRANDING} from '../config/branding';
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+} from "react-native";
+import { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import AppLogo from "../components/branding/AppLogo";
+import { BRANDING } from "../config/branding";
+import { AuthenticatedUser, RootStackParamList } from "../navigation/navigationTypes";
 
-type LoginScreenProps = NativeStackScreenProps<
-  RootStackParamList,
-  'Login'
->;
+type LoginScreenProps = NativeStackScreenProps<RootStackParamList, "Login">;
 
-export default function LoginScreen({navigation}: LoginScreenProps) {
+const COUNTRY_CODES = [
+  { code: "+255", flag: "🇹🇿", label: "Tanzania (+255)" },
+  { code: "+254", flag: "🇰🇪", label: "Kenya (+254)" },
+  { code: "+1", flag: "🇺🇸", label: "USA/Canada (+1)" },
+  { code: "+44", flag: "🇬🇧", label: "UK (+44)" },
+  { code: "+971", flag: "🇦🇪", label: "UAE (+971)" },
+  { code: "+27", flag: "🇿🇦", label: "South Africa (+27)" },
+  { code: "+234", flag: "🇳🇬", label: "Nigeria (+234)" },
+];
+
+export default function LoginScreen({ navigation }: LoginScreenProps) {
   const insets = useSafeAreaInsets();
 
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(true);
-  const [showPassword, setShowPassword] = useState(false);
+  // Step 1: Personal credentials, Step 2: OTP verification
+  const [step, setStep] = useState<"credentials" | "otp">("credentials");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [countryCode, setCountryCode] = useState("+255");
+  const [phone, setPhone] = useState("");
+  const [otpCode, setOtpCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resendTimer, setResendTimer] = useState(45);
 
-const handleLogin = () => {
-  if (loading) {
-    return;
-  }
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    if (step === "otp" && resendTimer > 0) {
+      interval = setInterval(() => {
+        setResendTimer((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [step, resendTimer]);
 
-  setLoading(true);
+  const handleSendVerification = () => {
+    if (!fullName.trim()) {
+      Alert.alert("Missing Name", "Please enter your full legal name.");
+      return;
+    }
+    if (!email.trim() || !email.includes("@")) {
+      Alert.alert("Invalid Email", "Please enter a valid email address.");
+      return;
+    }
+    if (!phone.trim() || phone.length < 6) {
+      Alert.alert("Invalid Phone", "Please enter your valid phone number.");
+      return;
+    }
 
-  setTimeout(() => {
-    const normalizedEmail = email.trim().toLowerCase();
+    setLoading(true);
+    setTimeout(() => {
+      setLoading(false);
+      setStep("otp");
+      setResendTimer(45);
+      Alert.alert(
+        "Verification Code Dispatched",
+        `A 6-digit security verification code has been dispatched to ${countryCode} ${phone}.`
+      );
+    }, 1200);
+  };
 
-    const emailName =
-      normalizedEmail.split('@')[0] || 'Trader';
+  const handleVerifyOtp = () => {
+    if (!otpCode.trim() || otpCode.length < 4) {
+      Alert.alert("Invalid Code", "Please enter the 6-digit verification code.");
+      return;
+    }
 
-    const firstName =
-      emailName
-        .split(/[._-]/)[0]
-        .replace(/\d+/g, '')
-        .replace(/^./, character => character.toUpperCase()) ||
-      'Trader';
+    setLoading(true);
 
-    const user: AuthenticatedUser = {
-      id: normalizedEmail || 'development-user',
-      email: normalizedEmail,
-      firstName,
-      displayName: firstName,
-    };
+    setTimeout(() => {
+      setLoading(false);
+      const nameParts = fullName.trim().split(" ");
+      const firstName = nameParts[0] || "Trader";
 
-    setLoading(false);
+      const authenticatedUser: AuthenticatedUser = {
+        id: email.trim().toLowerCase(),
+        email: email.trim().toLowerCase(),
+        firstName,
+        displayName: fullName.trim(),
+        phone: `${countryCode} ${phone.trim()}`,
+        countryCode,
+      };
 
-    navigation.replace('MainTabs', user);
-  }, 1200);
-};
+      // Proceed to MT5 Broker setup
+      navigation.replace("BrokerSetup", authenticatedUser);
+    }, 1200);
+  };
 
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" />
 
-      <View style={styles.glowTop} />
-      <View style={styles.glowBottom} />
+      <View style={styles.glowTop} pointerEvents="none" />
+      <View style={styles.glowBottom} pointerEvents="none" />
 
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         <ScrollView
           contentContainerStyle={[
             styles.scrollContent,
@@ -87,191 +126,204 @@ const handleLogin = () => {
             },
           ]}
           keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}>
-          
+          showsVerticalScrollIndicator={false}
+        >
           {/* BRAND HEADER */}
           <View style={styles.header}>
-            <AppLogo size={74} />
-
-            <Text style={styles.brand}>
+            <AppLogo size={70} />
+            <Text style={styles.brand} allowFontScaling={false}>
               {BRANDING.appName}
             </Text>
-
-            <Text style={styles.tagline}>
+            <Text style={styles.tagline} allowFontScaling={false}>
               {BRANDING.tagline}
             </Text>
           </View>
 
-          {/* SYSTEM STATUS */}
+          {/* STATUS PILL */}
           <View style={styles.statusRow}>
             <View style={styles.statusDot} />
-
-            <Text style={styles.statusText}>
-              SYSTEM READY
+            <Text style={styles.statusText} allowFontScaling={false}>
+              {step === "credentials" ? "TRADER IDENTITY ACCESS" : "2FA CODE VERIFICATION"}
             </Text>
           </View>
 
-          {/* LOGIN CARD */}
+          {/* CARD CONTAINER */}
           <View style={styles.card}>
-            <Text style={styles.welcome}>
-              Welcome to {BRANDING.appName}
-            </Text>
+            {step === "credentials" ? (
+              <>
+                <Text style={styles.welcome} allowFontScaling={false}>
+                  Trader Sign In
+                </Text>
+                <Text style={styles.subtitle} allowFontScaling={false}>
+                  Enter your verified personal credentials to access your trading cockpit.
+                </Text>
 
-            <Text style={styles.subtitle}>
-              Sign in to continue to your trading dashboard.
-            </Text>
-
-            {/* EMAIL */}
-            <View style={styles.fieldContainer}>
-              <Text style={styles.fieldLabel}>
-                EMAIL
-              </Text>
-
-              <TextInput
-                value={email}
-                onChangeText={setEmail}
-                placeholder="Enter your email"
-                placeholderTextColor="#667085"
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="email-address"
-                style={styles.input}
-              />
-            </View>
-
-            {/* PASSWORD */}
-            <View style={styles.fieldContainer}>
-              <Text style={styles.fieldLabel}>
-                PASSWORD
-              </Text>
-
-              <View style={styles.passwordWrapper}>
-                <TextInput
-                  value={password}
-                  onChangeText={setPassword}
-                  placeholder="Enter your password"
-                  placeholderTextColor="#667085"
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  style={styles.passwordInput}
-                />
-
-                <Pressable
-                  onPress={() =>
-                    setShowPassword(previous => !previous)
-                  }
-                  style={styles.visibilityButton}
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    showPassword
-                      ? 'Hide password'
-                      : 'Show password'
-                  }>
-                  <Text style={styles.visibilityText}>
-                    {showPassword ? 'HIDE' : 'SHOW'}
+                {/* FULL NAME */}
+                <View style={styles.fieldContainer}>
+                  <Text style={styles.fieldLabel} allowFontScaling={false}>
+                    FULL TRADER NAME
                   </Text>
-                </Pressable>
-              </View>
-            </View>
-
-            {/* OPTIONS */}
-            <View style={styles.optionsRow}>
-              <View style={styles.rememberContainer}>
-                <Switch
-                  value={rememberMe}
-                  onValueChange={setRememberMe}
-                  trackColor={{
-                    false: '#252B38',
-                    true: '#334BFF',
-                  }}
-                  thumbColor="#FFFFFF"
-                  accessibilityLabel="Remember me"
-                />
-
-                <Text style={styles.rememberText}>
-                  Remember me
-                </Text>
-              </View>
-
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Forgot password">
-                <Text style={styles.forgotText}>
-                  Forgot password?
-                </Text>
-              </Pressable>
-            </View>
-
-            {/* LOGIN BUTTON */}
-            <Pressable
-              onPress={handleLogin}
-              disabled={loading}
-              accessibilityRole="button"
-              accessibilityLabel="Login"
-              style={({pressed}) => [
-                styles.loginButton,
-                pressed && styles.loginButtonPressed,
-                loading && styles.loginButtonLoading,
-              ]}>
-              {loading ? (
-                <View style={styles.loadingRow}>
-                  <ActivityIndicator
-                    size="small"
-                    color="#FFFFFF"
+                  <TextInput
+                    value={fullName}
+                    onChangeText={setFullName}
+                    placeholder="e.g. Josephat Bally"
+                    placeholderTextColor="#64748B"
+                    autoCapitalize="words"
+                    style={styles.input}
+                    allowFontScaling={false}
                   />
-
-                  <Text style={styles.loginButtonText}>
-                    AUTHENTICATING...
-                  </Text>
                 </View>
-              ) : (
-                <Text style={styles.loginButtonText}>
-                  LOGIN
+
+                {/* EMAIL */}
+                <View style={styles.fieldContainer}>
+                  <Text style={styles.fieldLabel} allowFontScaling={false}>
+                    EMAIL ADDRESS
+                  </Text>
+                  <TextInput
+                    value={email}
+                    onChangeText={setEmail}
+                    placeholder="trader@ballyflow.com"
+                    placeholderTextColor="#64748B"
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    style={styles.input}
+                    allowFontScaling={false}
+                  />
+                </View>
+
+                {/* PHONE & COUNTRY CODE */}
+                <View style={styles.fieldContainer}>
+                  <Text style={styles.fieldLabel} allowFontScaling={false}>
+                    MOBILE PHONE NUMBER
+                  </Text>
+                  <View style={styles.phoneRow}>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.countryScroll}
+                    >
+                      {COUNTRY_CODES.map((item) => {
+                        const active = item.code === countryCode;
+                        return (
+                          <TouchableOpacity
+                            key={item.code}
+                            style={[
+                              styles.countryChip,
+                              active && styles.countryChipActive,
+                            ]}
+                            onPress={() => setCountryCode(item.code)}
+                          >
+                            <Text style={styles.countryChipFlag}>
+                              {item.flag}
+                            </Text>
+                            <Text
+                              style={[
+                                styles.countryChipText,
+                                active && styles.countryChipTextActive,
+                              ]}
+                              allowFontScaling={false}
+                            >
+                              {item.code}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+
+                  <TextInput
+                    value={phone}
+                    onChangeText={setPhone}
+                    placeholder="712 345 678"
+                    placeholderTextColor="#64748B"
+                    keyboardType="phone-pad"
+                    style={styles.input}
+                    allowFontScaling={false}
+                  />
+                </View>
+
+                {/* SUBMIT BUTTON */}
+                <TouchableOpacity
+                  style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}
+                  onPress={handleSendVerification}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <Text style={styles.primaryBtnText} allowFontScaling={false}>
+                      CONTINUE TO VERIFY →
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Text style={styles.welcome} allowFontScaling={false}>
+                  Security Verification
                 </Text>
-              )}
-            </Pressable>
-
-            {/* DIVIDER */}
-            <View style={styles.dividerRow}>
-              <View style={styles.divider} />
-
-              <Text style={styles.dividerText}>
-                OR
-              </Text>
-
-              <View style={styles.divider} />
-            </View>
-
-            {/* CREATE ACCOUNT */}
-            <View style={styles.createRow}>
-              <Text style={styles.createText}>
-                Don't have an account?
-              </Text>
-
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Create account">
-                <Text style={styles.createLink}>
-                  {' '}Create account
+                <Text style={styles.subtitle} allowFontScaling={false}>
+                  Enter the 6-digit confirmation code dispatched to {countryCode} {phone}.
                 </Text>
-              </Pressable>
-            </View>
-          </View>
 
-          {/* FOOTER */}
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>
-              {BRANDING.appName.toUpperCase()} • SMART TRADING PLATFORM
-            </Text>
+                {/* OTP INPUT */}
+                <View style={styles.fieldContainer}>
+                  <Text style={styles.fieldLabel} allowFontScaling={false}>
+                    6-DIGIT VERIFICATION CODE
+                  </Text>
+                  <TextInput
+                    value={otpCode}
+                    onChangeText={setOtpCode}
+                    placeholder="• • • • • •"
+                    placeholderTextColor="#64748B"
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    style={[styles.input, styles.otpInput]}
+                    allowFontScaling={false}
+                  />
+                </View>
 
-            <View style={styles.securityRow}>
-              <View style={styles.securityDot} />
+                {/* RESEND ROW */}
+                <View style={styles.resendRow}>
+                  {resendTimer > 0 ? (
+                    <Text style={styles.resendTimerText} allowFontScaling={false}>
+                      Resend code in {resendTimer}s
+                    </Text>
+                  ) : (
+                    <TouchableOpacity onPress={handleSendVerification}>
+                      <Text style={styles.resendLinkText} allowFontScaling={false}>
+                        Resend verification code
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
 
-              <Text style={styles.securityText}>
-                SECURE CONNECTION
-              </Text>
-            </View>
+                {/* VERIFY BUTTON */}
+                <TouchableOpacity
+                  style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}
+                  onPress={handleVerifyOtp}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <Text style={styles.primaryBtnText} allowFontScaling={false}>
+                      VERIFY & LINK MT5 DESK →
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                {/* BACK TO PHONE */}
+                <TouchableOpacity
+                  style={styles.backBtn}
+                  onPress={() => setStep("credentials")}
+                >
+                  <Text style={styles.backBtnText} allowFontScaling={false}>
+                    ← Edit phone number or email
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -282,296 +334,199 @@ const handleLogin = () => {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#05070D',
+    backgroundColor: "#05070D",
   },
-
   flex: {
     flex: 1,
   },
-
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 22,
-    justifyContent: 'center',
+    justifyContent: "center",
+    paddingVertical: 30,
   },
-
   glowTop: {
-    position: 'absolute',
+    position: "absolute",
     width: 260,
     height: 260,
     borderRadius: 130,
-    backgroundColor: '#101B5C',
-    opacity: 0.22,
-    top: -150,
-    right: -80,
+    backgroundColor: "#7083FF18",
+    top: -80,
+    right: -60,
   },
-
   glowBottom: {
-    position: 'absolute',
+    position: "absolute",
     width: 280,
     height: 280,
     borderRadius: 140,
-    backgroundColor: '#17204A',
-    opacity: 0.18,
-    bottom: -170,
-    left: -100,
+    backgroundColor: "#35E68A14",
+    bottom: -100,
+    left: -70,
   },
-
   header: {
-    alignItems: 'center',
-    marginBottom: 22,
+    alignItems: "center",
+    marginBottom: 20,
   },
-
   brand: {
-    color: '#FFFFFF',
-    fontSize: 27,
-    fontWeight: '900',
+    color: "#FFFFFF",
+    fontSize: 26,
+    fontWeight: "900",
     letterSpacing: 3,
-    marginTop: 14,
+    marginTop: 12,
   },
-
   tagline: {
-    color: '#7D8AA8',
+    color: "#7D8AA8",
     fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 2,
-    marginTop: 7,
-    textAlign: 'center',
+    fontWeight: "700",
+    letterSpacing: 1.8,
+    marginTop: 6,
+    textAlign: "center",
   },
-
   statusRow: {
-    alignSelf: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 18,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+    backgroundColor: "#10B98118",
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#10B98135",
   },
-
   statusDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: '#35E68A',
-    marginRight: 7,
-  },
-
-  statusText: {
-    color: '#7D8AA8',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-  },
-
-  card: {
-    backgroundColor: '#0A0E18',
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: '#1B2435',
-    padding: 22,
-    shadowColor: '#000000',
-    shadowOpacity: 0.35,
-    shadowRadius: 20,
-    shadowOffset: {
-      width: 0,
-      height: 10,
-    },
-    elevation: 8,
-  },
-
-  welcome: {
-    color: '#FFFFFF',
-    fontSize: 25,
-    fontWeight: '800',
-    marginBottom: 7,
-  },
-
-  subtitle: {
-    color: '#7D8AA8',
-    fontSize: 13,
-    lineHeight: 20,
-    marginBottom: 24,
-  },
-
-  fieldContainer: {
-    marginBottom: 18,
-  },
-
-  fieldLabel: {
-    color: '#8995B1',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 1.4,
-    marginBottom: 8,
-  },
-
-  input: {
-    height: 54,
-    borderRadius: 13,
-    borderWidth: 1,
-    borderColor: '#202A3B',
-    backgroundColor: '#070A11',
-    color: '#FFFFFF',
-    paddingHorizontal: 15,
-    fontSize: 14,
-  },
-
-  passwordWrapper: {
-    height: 54,
-    borderRadius: 13,
-    borderWidth: 1,
-    borderColor: '#202A3B',
-    backgroundColor: '#070A11',
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-
-  passwordInput: {
-    flex: 1,
-    height: 52,
-    color: '#FFFFFF',
-    paddingHorizontal: 15,
-    fontSize: 14,
-  },
-
-  visibilityButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-
-  visibilityText: {
-    color: '#7083FF',
-    fontSize: 9,
-    fontWeight: '900',
-    letterSpacing: 1,
-  },
-
-  optionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 22,
-  },
-
-  rememberContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-
-  rememberText: {
-    color: '#9AA5BB',
-    fontSize: 12,
-    marginLeft: 5,
-  },
-
-  forgotText: {
-    color: '#7083FF',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-
-  loginButton: {
-    height: 56,
-    borderRadius: 14,
-    backgroundColor: '#334BFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#334BFF',
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    shadowOffset: {
-      width: 0,
-      height: 6,
-    },
-    elevation: 6,
-  },
-
-  loginButtonPressed: {
-    opacity: 0.78,
-    transform: [{scale: 0.985}],
-  },
-
-  loginButtonLoading: {
-    opacity: 0.9,
-  },
-
-  loginButtonText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 2,
-  },
-
-  loadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 23,
-  },
-
-  divider: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#1B2435',
-  },
-
-  dividerText: {
-    color: '#56627A',
-    fontSize: 9,
-    fontWeight: '800',
-    marginHorizontal: 12,
-  },
-
-  createRow: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-
-  createText: {
-    color: '#78849D',
-    fontSize: 12,
-  },
-
-  createLink: {
-    color: '#7083FF',
-    fontSize: 12,
-    fontWeight: '800',
-  },
-
-  footer: {
-    alignItems: 'center',
-    marginTop: 22,
-  },
-
-  footerText: {
-    color: '#424D64',
-    fontSize: 8,
-    fontWeight: '800',
-    letterSpacing: 1.1,
-    textAlign: 'center',
-  },
-
-  securityRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-  },
-
-  securityDot: {
-    width: 5,
-    height: 5,
+    width: 6,
+    height: 6,
     borderRadius: 3,
-    backgroundColor: '#35E68A',
+    backgroundColor: "#35E68A",
     marginRight: 6,
   },
-
-  securityText: {
-    color: '#4E5A72',
-    fontSize: 8,
-    fontWeight: '700',
-    letterSpacing: 0.8,
+  statusText: {
+    color: "#35E68A",
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+  },
+  card: {
+    backgroundColor: "#0A0E18",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#1E293B",
+    padding: 22,
+  },
+  welcome: {
+    color: "#FFFFFF",
+    fontSize: 22,
+    fontWeight: "800",
+    marginBottom: 6,
+  },
+  subtitle: {
+    color: "#7D8AA8",
+    fontSize: 12.5,
+    lineHeight: 19,
+    marginBottom: 20,
+  },
+  fieldContainer: {
+    marginBottom: 16,
+  },
+  fieldLabel: {
+    color: "#8995B1",
+    fontSize: 9.5,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+    marginBottom: 8,
+  },
+  input: {
+    height: 50,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#1E293B",
+    backgroundColor: "#05070D",
+    color: "#FFFFFF",
+    paddingHorizontal: 14,
+    fontSize: 13.5,
+  },
+  otpInput: {
+    fontSize: 20,
+    fontWeight: "800",
+    letterSpacing: 6,
+    textAlign: "center",
+  },
+  phoneRow: {
+    marginBottom: 10,
+  },
+  countryScroll: {
+    flexDirection: "row",
+  },
+  countryChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: "#05070D",
+    borderWidth: 1,
+    borderColor: "#1E293B",
+    marginRight: 6,
+  },
+  countryChipActive: {
+    borderColor: "#7083FF",
+    backgroundColor: "#7083FF22",
+  },
+  countryChipFlag: {
+    fontSize: 12,
+    marginRight: 4,
+  },
+  countryChipText: {
+    color: "#94A3B8",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  countryChipTextActive: {
+    color: "#7083FF",
+  },
+  primaryBtn: {
+    height: 52,
+    borderRadius: 12,
+    backgroundColor: "#334BFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 8,
+    shadowColor: "#334BFF",
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  primaryBtnDisabled: {
+    opacity: 0.6,
+  },
+  primaryBtnText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 1.5,
+  },
+  resendRow: {
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  resendTimerText: {
+    color: "#64748B",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  resendLinkText: {
+    color: "#7083FF",
+    fontSize: 11.5,
+    fontWeight: "700",
+  },
+  backBtn: {
+    alignItems: "center",
+    marginTop: 16,
+  },
+  backBtnText: {
+    color: "#64748B",
+    fontSize: 11.5,
+    fontWeight: "700",
   },
 });
