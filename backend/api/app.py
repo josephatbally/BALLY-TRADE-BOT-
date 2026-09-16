@@ -22,6 +22,7 @@ from .routes.markets import router as markets_router
 from .routes.positions import router as positions_router
 from .routes.history import router as history_router
 from .routes.flow import router as flow_router
+from .routes.auth import router as auth_router
 
 APP_NAME = "BALLY FLOW API"
 APP_VERSION = "1.0.0"
@@ -54,6 +55,7 @@ app.add_middleware(
 )
 
 app.include_router(health_router, prefix="/health", tags=["Health"])
+app.include_router(auth_router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(application_router, prefix="/api/v1/app", tags=["Application"])
 app.include_router(positions_router, prefix="/api/v1/positions", tags=["Positions"])
 app.include_router(history_router, prefix="/api/v1/history", tags=["History"])
