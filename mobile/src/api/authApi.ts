@@ -1,10 +1,10 @@
 import { apiRequest } from './client';
 
 export interface RegisterInitiateInput {
-  full_name: str;
-  email: str;
-  phone: str;
-  country_code?: str;
+  full_name: string;
+  email: string;
+  phone: string;
+  country_code?: string;
   channel?: 'email' | 'sms' | 'whatsapp';
 }
 
