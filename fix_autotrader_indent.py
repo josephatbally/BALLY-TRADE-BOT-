@@ -1,4 +1,8 @@
 """
+Write clean, validated auto_trader.py directly to disk.
+"""
+
+content = '''"""
 Background Auto-Trading Daemon for Bally Trade Bot.
 Scans supported markets, performs SMC/technical confluence analysis,
 manages open positions, and safely executes orders via the guarded pipeline.
@@ -274,3 +278,11 @@ class AutoTrader:
 
 
 auto_trader = AutoTrader()
+'''
+
+with open("backend/trading_engine/auto_trader.py", "w", encoding="utf-8") as f:
+    f.write(content)
+
+import py_compile
+py_compile.compile("backend/trading_engine/auto_trader.py", doraise=True)
+print("SUCCESS: backend/trading_engine/auto_trader.py compiled with zero syntax/indentation errors.")
