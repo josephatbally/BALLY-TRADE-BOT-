@@ -17,7 +17,7 @@ from backend.trading_engine.market_data.mt5_connection import (
     get_symbol_tick,
 )
 from backend.trading_engine.execution.execution_pipeline import execute_trade_pipeline
-from backend.trading_engine.execution.live_executor import close_position
+from backend.trading_engine.execution.live_executor import close_position, execute_live_trade
 from backend.trading_engine.trade_plan import build_trade_plan
 
 logger = logging.getLogger("AutoTrader")
@@ -189,9 +189,20 @@ class AutoTrader:
                                         execute_live=True,
                                         reject_existing_position=True,
                                     )
-                                    if res.get("execution_allowed"):
-                                        self._add_log("SUCCESS", f"Auto-trade placed: {action} {symbol}")
-                                        break
+                                    if res.get('execution_allowed') or res.get('status') == 'READY':
+                                        final_gate = res.get('final_gate', {})
+                                        gate_result = final_gate.get('gate_result', final_gate) if isinstance(final_gate, dict) else {}
+                                        builder_res = res.get('order_builder', {})
+                                        order_payload = builder_res.get('order') or builder_res.get('built_order') or trade_plan
+                                        while isinstance(order_payload, dict) and 'order' in order_payload and isinstance(order_payload['order'], dict):
+                                            order_payload = order_payload['order']
+                                        live_res = execute_live_trade(order=order_payload, gate=gate_result)
+                                        if live_res.get('status') in ('EXECUTED', 'SUCCESS') or live_res.get('order_sent'):
+                                            ticket = live_res.get('ticket') or live_res.get('order')
+                                            self._add_log('SUCCESS', f'Auto-trade executed on MT5: {action} {symbol} (#{ticket})')
+                                            break
+                                        else:
+                                            self._add_log('WARNING', f'Auto-trade MT5 rejected: {live_res.get("reason")}')
                             except Exception as scan_err:
                                 self._add_log("WARNING", f"Scan error on {symbol}: {scan_err}")
             except Exception as loop_err:

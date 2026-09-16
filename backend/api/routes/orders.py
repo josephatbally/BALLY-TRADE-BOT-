@@ -59,7 +59,18 @@ def execute_order(request: OrderExecutionRequest):
     point = getattr(symbol_info, "point", 0.0001) or 0.0001
     digits = getattr(symbol_info, "digits", 5) or 5
 
-    default_stop_dist = max(30.0 * point * 10, 0.0030 if "JPY" not in request.symbol else 0.30)
+    # Realistic default SL: 25 pips for Forex, $2.50 for Gold/Metals, 25 points for indices
+    sym = request.symbol.upper()
+    if "XAU" in sym or "GOLD" in sym:
+        default_stop_dist = 2.50
+    elif "XAG" in sym or "SILVER" in sym:
+        default_stop_dist = 0.35
+    elif "JPY" in sym:
+        default_stop_dist = 0.35
+    elif "NAS" in sym or "US100" in sym or "100" in sym:
+        default_stop_dist = 25.0
+    else:
+        default_stop_dist = max(250.0 * point, 0.0025)
     if request.stop_loss and request.stop_loss > 0:
         sl = round(float(request.stop_loss), digits)
     else:

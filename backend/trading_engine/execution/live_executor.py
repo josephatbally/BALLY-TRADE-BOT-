@@ -419,6 +419,12 @@ def validate_authorized_order(
 # ======================================================================
 
 def initialize_mt5() -> Dict[str, Any]:
+    if MT5_AVAILABLE and mt5 is not None:
+        try:
+            if mt5.terminal_info() is not None:
+                return {"status": "READY", "initialized": True, "terminal": "MetaTrader 5"}
+        except Exception:
+            pass
 
     if not MT5_AVAILABLE or mt5 is None:
         return {
