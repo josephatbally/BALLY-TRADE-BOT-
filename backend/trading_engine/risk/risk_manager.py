@@ -1,9 +1,8 @@
-﻿
+
 """
 BALLY FLOW - Intelligent Risk Manager
 
 CENTRAL RISK MANAGEMENT COORDINATOR
-===================================
 
 PIPELINE
 --------
@@ -751,11 +750,8 @@ def validate_risk_reward(
         }
 
 
-<<<<<<< HEAD
-=======
     
 
->>>>>>> origin/main
     # ==================================================================
     # AUTHORIZED
     # ==================================================================

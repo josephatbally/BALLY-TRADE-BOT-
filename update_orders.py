@@ -1,4 +1,6 @@
-from typing import Optional, Dict, Any
+from pathlib import Path
+
+orders_code = '''from typing import Optional, Dict, Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -55,7 +57,6 @@ def execute_manual_order(req: OrderExecutionRequest) -> Dict[str, Any]:
     point = getattr(sym_info, "point", 0.0001) or 0.0001
     digits = getattr(sym_info, "digits", 5) or 5
 
-    # If trader did not supply explicit SL/TP, provide standard structural fallback (30 pips)
     sl = req.sl
     tp = req.tp
     default_pips = 300 * point if ("JPY" in symbol or "XAU" in symbol) else 30 * point
@@ -65,6 +66,15 @@ def execute_manual_order(req: OrderExecutionRequest) -> Dict[str, Any]:
 
     if tp is None or tp <= 0:
         tp = round(entry_price + (default_pips * 2.0) if action == "BUY" else entry_price - (default_pips * 2.0), digits)
+
+    structural_levels = {
+        "swing_high": tp if action == "BUY" else entry_price + default_pips,
+        "swing_low": sl if action == "BUY" else entry_price - default_pips,
+        "previous_high": tp if action == "BUY" else None,
+        "previous_low": tp if action == "SELL" else None,
+        "target_high": tp if action == "BUY" else None,
+        "target_low": tp if action == "SELL" else None,
+    }
 
     trade_plan = {
         "symbol": symbol,
@@ -80,13 +90,11 @@ def execute_manual_order(req: OrderExecutionRequest) -> Dict[str, Any]:
         "stop_loss": sl,
         "take_profit": tp,
         "structural_stop": sl,
-        "target_high": tp if action == "BUY" else None,
-        "target_low": tp if action == "SELL" else None,
-        "swing_high": tp if action == "BUY" else entry_price + default_pips,
-        "swing_low": sl if action == "BUY" else entry_price - default_pips,
         "risk_ratio": 2.0,
         "confidence": 100.0,
         "source": "manual_app_execution",
+        "market_context": dict(structural_levels),
+        "structural_context": dict(structural_levels),
     }
 
     acc = get_account_info()
@@ -125,3 +133,8 @@ def close_order(ticket: int):
 @router.post("/close-all")
 def close_all():
     return close_all_positions()
+'''
+
+target = Path("backend/api/routes/orders.py")
+target.write_text(orders_code, encoding="utf-8")
+print("[OK] backend/api/routes/orders.py updated with structural targets in market_context.")
