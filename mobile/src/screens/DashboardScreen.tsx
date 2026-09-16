@@ -751,7 +751,14 @@ export default function DashboardScreen({
 
           <Switch
             value={botEnabled}
-            onValueChange={setBotEnabled}
+            onValueChange={async (newValue) => {
+              setBotEnabled(newValue);
+              try {
+                await toggleBotAutoTrade(newValue);
+              } catch (err) {
+                console.log('Failed to toggle bot state on backend:', err);
+              }
+            }}
             trackColor={{
               false: '#252B38',
               true: '#334BFF',
