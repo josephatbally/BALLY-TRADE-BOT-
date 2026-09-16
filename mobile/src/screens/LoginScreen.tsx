@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AppLogo from "../components/branding/AppLogo";
 import { BRANDING } from "../config/branding";
 import { AuthenticatedUser, RootStackParamList } from "../navigation/navigationTypes";
+import { initiateRegistration, verifySecurityCode, resendSecurityCode } from "../api/authApi";
 
 type LoginScreenProps = NativeStackScreenProps<RootStackParamList, "Login">;
 
@@ -42,6 +43,8 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
   const [otpCode, setOtpCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [resendTimer, setResendTimer] = useState(45);
+  const [activeIdentifier, setActiveIdentifier] = useState("");
+  const [devHintCode, setDevHintCode] = useState<string | null>(null);
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
@@ -53,7 +56,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
     return () => clearInterval(interval);
   }, [step, resendTimer]);
 
-  const handleSendVerification = () => {
+  const handleSendVerification = async () => {
     if (!fullName.trim()) {
       Alert.alert("Missing Name", "Please enter your full legal name.");
       return;
@@ -68,42 +71,102 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
     }
 
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      const res = await initiateRegistration({
+        full_name: fullName.trim(),
+        email: email.trim().toLowerCase(),
+        phone: phone.trim(),
+        country_code: countryCode,
+        channel: "email",
+      });
+
+      setActiveIdentifier(email.trim().toLowerCase());
+      if (res.dev_code) {
+        setDevHintCode(res.dev_code);
+      }
       setStep("otp");
       setResendTimer(45);
+
+      const notice = res.email_sent
+        ? `A 6-digit verification code has been dispatched to ${email.trim()}.
+
+Check your inbox or spam folder.`
+        : `Verification code generated.
+
+Code: ${res.dev_code || "Logged to server terminal"}
+
+(It is also displayed in your backend Uvicorn console)`;
+
+      Alert.alert("Security Verification", notice);
+    } catch (err: any) {
       Alert.alert(
-        "Verification Code Dispatched",
-        `A 6-digit security verification code has been dispatched to ${countryCode} ${phone}.`
+        "Verification Error",
+        err?.message || "Failed to reach authentication backend. Ensure FastAPI server is running."
       );
-    }, 1200);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleVerifyOtp = () => {
+  const handleVerifyOtp = async () => {
     if (!otpCode.trim() || otpCode.length < 4) {
       Alert.alert("Invalid Code", "Please enter the 6-digit verification code.");
       return;
     }
 
     setLoading(true);
+    try {
+      const res = await verifySecurityCode({
+        identifier: activeIdentifier || email.trim().toLowerCase(),
+        code: otpCode.trim(),
+      });
 
-    setTimeout(() => {
-      setLoading(false);
-      const nameParts = fullName.trim().split(" ");
+      const nameParts = (res.user?.full_name || fullName.trim()).split(" ");
       const firstName = nameParts[0] || "Trader";
 
       const authenticatedUser: AuthenticatedUser = {
-        id: email.trim().toLowerCase(),
-        email: email.trim().toLowerCase(),
+        id: String(res.user?.id || email.trim().toLowerCase()),
+        email: res.user?.email || email.trim().toLowerCase(),
         firstName,
-        displayName: fullName.trim(),
-        phone: `${countryCode} ${phone.trim()}`,
-        countryCode,
+        displayName: res.user?.full_name || fullName.trim(),
+        phone: res.user?.phone || `${countryCode} ${phone.trim()}`,
+        countryCode: res.user?.country_code || countryCode,
       };
 
       // Proceed to MT5 Broker setup
       navigation.replace("BrokerSetup", authenticatedUser);
-    }, 1200);
+    } catch (err: any) {
+      Alert.alert(
+        "Verification Failed",
+        err?.message || "The verification code entered is invalid or has expired."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (resendTimer > 0) return;
+    setLoading(true);
+    try {
+      const res = await resendSecurityCode({
+        identifier: activeIdentifier || email.trim().toLowerCase(),
+        channel: "email",
+      });
+      setResendTimer(45);
+      if (res.dev_code) {
+        setDevHintCode(res.dev_code);
+      }
+      Alert.alert(
+        "Code Resent",
+        `A fresh 6-digit code has been generated.
+${res.dev_code ? `Code: ${res.dev_code}` : "Check your email/terminal."}`
+      );
+    } catch (err: any) {
+      Alert.alert("Resend Failed", err?.message || "Unable to resend code right now.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -263,8 +326,19 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
                   Security Verification
                 </Text>
                 <Text style={styles.subtitle} allowFontScaling={false}>
-                  Enter the 6-digit confirmation code dispatched to {countryCode} {phone}.
+                  Enter the 6-digit confirmation code dispatched to {email || `${countryCode} ${phone}`}.
                 </Text>
+
+                {devHintCode ? (
+                  <View style={styles.devHintBox}>
+                    <Text style={styles.devHintLabel} allowFontScaling={false}>
+                      SYSTEM OTP CODE:
+                    </Text>
+                    <Text style={styles.devHintValue} allowFontScaling={false}>
+                      {devHintCode}
+                    </Text>
+                  </View>
+                ) : null}
 
                 {/* OTP INPUT */}
                 <View style={styles.fieldContainer}>
@@ -290,7 +364,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
                       Resend code in {resendTimer}s
                     </Text>
                   ) : (
-                    <TouchableOpacity onPress={handleSendVerification}>
+                    <TouchableOpacity onPress={handleResend}>
                       <Text style={styles.resendLinkText} allowFontScaling={false}>
                         Resend verification code
                       </Text>
@@ -447,10 +521,35 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
   },
   otpInput: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: "800",
-    letterSpacing: 6,
+    letterSpacing: 8,
     textAlign: "center",
+    borderColor: "#334BFF",
+  },
+  devHintBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#334BFF18",
+    borderColor: "#334BFF40",
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 16,
+  },
+  devHintLabel: {
+    color: "#7083FF",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1,
+  },
+  devHintValue: {
+    color: "#35E68A",
+    fontSize: 18,
+    fontWeight: "900",
+    letterSpacing: 3,
   },
   phoneRow: {
     marginBottom: 10,
