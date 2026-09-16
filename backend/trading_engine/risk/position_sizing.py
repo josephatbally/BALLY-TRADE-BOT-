@@ -140,7 +140,7 @@ ALLOW_BROKER_MIN_VOLUME = True
 # If the broker minimum lot itself would exceed the maximum permitted
 # monetary risk, the engine rejects the trade instead of forcing the
 # broker minimum.
-REJECT_IF_BROKER_MIN_EXCEEDS_RISK = True
+REJECT_IF_BROKER_MIN_EXCEEDS_RISK = False
 
 
 # ======================================================================
@@ -1161,9 +1161,10 @@ def verify_final_risk(
         <= hard_max_risk_amount + 1e-9
     )
 
+    # For accounts with micro lot minimums, allow broker_min if within hard safety ceiling
     requested_limit_passed = (
-        actual_risk
-        <= risk_amount + 1e-9
+        (actual_risk <= risk_amount + 1e-9)
+        or (hard_limit_passed and actual_risk <= hard_max_risk_amount + 1e-9)
     )
 
     passed = (

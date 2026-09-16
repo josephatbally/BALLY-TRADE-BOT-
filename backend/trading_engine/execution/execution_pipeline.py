@@ -988,6 +988,8 @@ def _run_executor(
 
         result = execute_order(
             approved_order,
+            gate=gate_result,
+            delegate=True,
         )
 
     except TypeError:

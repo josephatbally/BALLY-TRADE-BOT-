@@ -340,7 +340,12 @@ class FinalGate:
             }
 
         # Accept common authorization field names.
-        approved = risk.get("approved")
+        approved = risk.get("risk_authorized")
+
+        if approved is None:
+            approved = risk.get("risk_authorized")
+        if approved is None:
+            approved = risk.get("approved")
 
         if approved is None:
             approved = risk.get("risk_approved")

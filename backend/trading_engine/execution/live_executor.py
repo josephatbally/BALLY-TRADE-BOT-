@@ -1261,19 +1261,9 @@ def build_mt5_request(
 
         "tp": take_profit,
 
-        "deviation": int(
-            order.get(
-                "deviation",
-                DEFAULT_DEVIATION,
-            )
-        ),
+        "deviation": int(order.get("deviation") or 20),
 
-        "magic": int(
-            order.get(
-                "magic_number",
-                MAGIC_NUMBER,
-            )
-        ),
+        "magic": int(order.get("magic_number") or 100001),
 
         "comment": str(
             order.get(

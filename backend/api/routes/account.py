@@ -8,6 +8,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, HTTPException
 from backend.trading_engine.market_data.mt5_connection import (
     get_account_info,
+    get_positions,
     is_mt5_connected,
 )
 
@@ -80,7 +81,7 @@ def get_account() -> Dict[str, Any]:
             "profit": _safe_float(getattr(account, "profit", 0.0)),
             "margin": _safe_float(getattr(account, "margin", 0.0)),
             "free_margin": _safe_float(getattr(account, "margin_free", 0.0)),
-            "open_trades": 0,
+            "open_trades": open_trades_count,
             "currency": getattr(account, "currency", "USD"),
         }
     except Exception as exc:

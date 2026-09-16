@@ -158,6 +158,10 @@ class Executor:
         if not isinstance(order, dict):
             return "order must be a dictionary"
 
+        # Unwrap if order_builder returned an order container
+        if "order" in order and isinstance(order["order"], dict) and "order_type" in order["order"]:
+            order = order["order"]
+
         required = (
             "symbol",
             "decision",
@@ -260,6 +264,10 @@ class Executor:
         # --------------------------------------------------------
         # Order validation
         # --------------------------------------------------------
+
+        # Unwrap container dictionary if present
+        if isinstance(order, dict) and "order" in order and isinstance(order["order"], dict) and "order_type" in order["order"]:
+            order = order["order"]
 
         error = self._validate_order(order)
 

@@ -1,4 +1,13 @@
-from __future__ import annotations
+"""
+apply_orders_live.py
+Overwrites backend/api/routes/orders.py with clean, validated indentation,
+correct imports, structural targets for take_profit (RR >= 1.0R),
+and direct MT5 dispatch via live_executor.
+"""
+
+from pathlib import Path
+
+orders_code = r'''from __future__ import annotations
 
 import logging
 from typing import Any, Dict, Optional
@@ -154,19 +163,13 @@ def execute_order(request: OrderExecutionRequest):
             "details": pipeline_result,
         }
 
-    # Extract and unwrap final gate result
-    final_gate_spec = pipeline_result.get("final_gate", {})
-    gate_result = final_gate_spec.get("gate_result", final_gate_spec) if isinstance(final_gate_spec, dict) else {}
+    gate_result = pipeline_result.get("gate", {})
     builder_result = pipeline_result.get("order_builder", {})
     order_dict = (
         builder_result.get("order")
         or builder_result.get("built_order")
         or trade_plan
     )
-
-    # Unwrap nested order dictionaries until top-level holds the actual order attributes
-    while isinstance(order_dict, dict) and "order" in order_dict and isinstance(order_dict["order"], dict):
-        order_dict = order_dict["order"]
 
     try:
         live_res = execute_live_trade(
@@ -226,3 +229,8 @@ def close_order(ticket: int):
 def close_all():
     res = close_all_positions()
     return {"status": "SUCCESS", "closed_count": res.get("closed_count", 0), "details": res}
+'''
+
+target_file = Path(r"D:\BALLY TRADE BOT\backend\api\routes\orders.py")
+target_file.write_text(orders_code, encoding="utf-8")
+print(f"[OK] Successfully patched {target_file}")
