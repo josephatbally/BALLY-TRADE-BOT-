@@ -14,6 +14,7 @@ import {CompositeScreenProps} from '@react-navigation/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {RootStackParamList} from '../navigation/navigationTypes';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {MainTabParamList} from '../navigation/MainTabNavigator';
 
 import {BRANDING} from '../config/branding';
@@ -190,15 +191,15 @@ export default function ProfileScreen({
         {
           text: 'Log Out',
           style: 'destructive',
-          onPress: () => {
-            /*
-             * Future authentication integration:
-             *
-             * 1. Clear access token.
-             * 2. Clear refresh token.
-             * 3. Clear authenticated user state.
-             * 4. Navigate to Login.
-             */
+          onPress: async () => {
+            try {
+              await AsyncStorage.multiRemove([
+                '@bally_auth_user',
+                '@bally_broker_credentials',
+              ]);
+            } catch {
+              // ignore
+            }
             navigation.reset({
               index: 0,
               routes: [
