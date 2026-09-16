@@ -8,9 +8,10 @@ import {
   Easing,
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import AppLogo from "../components/branding/AppLogo";
 import { BRANDING } from "../config/branding";
-import { RootStackParamList } from "../navigation/navigationTypes";
+import { AuthenticatedUser, RootStackParamList } from "../navigation/navigationTypes";
 
 type SplashScreenProps = NativeStackScreenProps<
   RootStackParamList,
@@ -27,11 +28,35 @@ const TELEMETRY_STAGES = [
 
 export default function SplashScreen({ navigation }: SplashScreenProps) {
   const [telemetryText, setTelemetryText] = useState(TELEMETRY_STAGES[0].text);
+  const [savedUser, setSavedUser] = useState<AuthenticatedUser | null>(null);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.92)).current;
   const pulseAnim = useRef(new Animated.Value(0.3)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
+
+  // Check persistent session immediately on launch
+  useEffect(() => {
+    let mounted = true;
+    AsyncStorage.getItem("@bally_auth_user")
+      .then((raw) => {
+        if (mounted && raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed && (parsed.email || parsed.id)) {
+              setSavedUser(parsed);
+            }
+          } catch {
+            // invalid session JSON, will route to Login
+          }
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -89,11 +114,23 @@ export default function SplashScreen({ navigation }: SplashScreenProps) {
       timeouts.push(t);
     });
 
-    // 5. Navigate to Login at exactly 10.0 seconds
-    const navTimeout = setTimeout(() => {
-      if (active) {
-        navigation.replace("Login");
+    // 5. Navigate at exactly 10.0 seconds:
+    // If user is already authenticated, enter MainTabs directly; otherwise go to Login.
+    const navTimeout = setTimeout(async () => {
+      if (!active) return;
+      try {
+        const stored = await AsyncStorage.getItem("@bally_auth_user");
+        if (stored) {
+          const userObj = JSON.parse(stored);
+          if (userObj && (userObj.email || userObj.id)) {
+            navigation.replace("MainTabs", userObj);
+            return;
+          }
+        }
+      } catch {
+        // fallback to Login
       }
+      navigation.replace("Login");
     }, 10000);
     timeouts.push(navTimeout);
 
