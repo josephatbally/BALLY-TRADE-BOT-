@@ -13,7 +13,7 @@ import { useNavigation } from '@react-navigation/native';
 import { getMarketQuotes, MarketQuote } from '../api/marketsApi';
 import { getAccountInfo, AccountResponse } from '../api/accountApi';
 import { getOpenPositions, OpenPosition } from '../api/positionsApi';
-import { executeOrder } from '../api/ordersApi';
+import { executeOrder, closePosition, closeAllPositions } from '../api/ordersApi';
 
 const MARKETS = ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'XAGUSD', 'NASDAQ'];
 const LOT_PRESETS = [0.01, 0.02, 0.05, 0.10];
@@ -87,8 +87,9 @@ export default function TradesScreen() {
     return positions.reduce((acc, p) => acc + (p.volume || 0), 0);
   }, [positions]);
 
-  // Order execution handler
-  const handleExecuteOrder = async () => {
+  // Order execution handler (accepts direct action to avoid state lag)
+  const handleExecuteOrder = async (action: 'BUY' | 'SELL') => {
+    setOrderType(action);
     const lot = parseFloat(lotSize);
     if (isNaN(lot) || lot <= 0) {
       Alert.alert('Invalid Lot', 'Please specify a valid trade volume.');
@@ -96,19 +97,19 @@ export default function TradesScreen() {
     }
 
     Alert.alert(
-      `Confirm ${orderType} Order`,
-      `${orderType} ${lot.toFixed(2)} lots of ${selectedSymbol} at market price?`,
+      `Confirm ${action} Order`,
+      `${action} ${lot.toFixed(2)} lots of ${selectedSymbol} at market price?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Confirm & Execute',
-          style: orderType === 'BUY' ? 'default' : 'destructive',
+          style: action === 'BUY' ? 'default' : 'destructive',
           onPress: async () => {
             setSubmitting(true);
             try {
               const res = await executeOrder({
                 symbol: selectedSymbol,
-                action: orderType,
+                action: action,
                 lot_size: lot,
               });
 
@@ -120,6 +121,68 @@ export default function TradesScreen() {
               }
             } catch (err: any) {
               Alert.alert('Order Failed', err?.message || 'Network request failed.');
+            } finally {
+              setSubmitting(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Close single position handler
+  const handleClosePosition = async (ticket: number, sym: string) => {
+    Alert.alert(
+      'Close Position',
+      `Close position #${ticket} on ${sym}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Close Trade',
+          style: 'destructive',
+          onPress: async () => {
+            setSubmitting(true);
+            try {
+              const res = await closePosition(ticket);
+              if (res && (res.status === 'SUCCESS' || res.closed)) {
+                Alert.alert('Trade Closed', `Position #${ticket} has been closed.`);
+                fetchAllData();
+              } else {
+                Alert.alert('Close Error', res?.reason || 'Could not close position.');
+              }
+            } catch (err: any) {
+              Alert.alert('Close Failed', err?.message || 'Network error closing position.');
+            } finally {
+              setSubmitting(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Close all positions handler
+  const handleCloseAllPositions = async () => {
+    Alert.alert(
+      'Close All Positions',
+      `Are you sure you want to close ALL ${positions.length} active positions?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Close All Now',
+          style: 'destructive',
+          onPress: async () => {
+            setSubmitting(true);
+            try {
+              const res = await closeAllPositions();
+              if (res && (res.status === 'SUCCESS' || (res.closed_count ?? 0) > 0)) {
+                Alert.alert('All Positions Closed', `Successfully closed ${res.closed_count ?? 0} positions.`);
+                fetchAllData();
+              } else {
+                Alert.alert('Close All', res?.reason || 'No positions closed.');
+              }
+            } catch (err: any) {
+              Alert.alert('Close Failed', err?.message || 'Network error closing positions.');
             } finally {
               setSubmitting(false);
             }
@@ -308,10 +371,7 @@ export default function TradesScreen() {
                 submitting && styles.btnDisabled,
               ]}
               disabled={submitting}
-              onPress={() => {
-                setOrderType('BUY');
-                handleExecuteOrder();
-              }}
+              onPress={() => handleExecuteOrder('BUY')}
             >
               <Text style={styles.executeBtnTitle} allowFontScaling={false}>BUY / LONG</Text>
               <Text style={styles.executeBtnSub} allowFontScaling={false}>
@@ -326,10 +386,7 @@ export default function TradesScreen() {
                 submitting && styles.btnDisabled,
               ]}
               disabled={submitting}
-              onPress={() => {
-                setOrderType('SELL');
-                handleExecuteOrder();
-              }}
+              onPress={() => handleExecuteOrder('SELL')}
             >
               <Text style={styles.executeBtnTitle} allowFontScaling={false}>SELL / SHORT</Text>
               <Text style={styles.executeBtnSub} allowFontScaling={false}>
@@ -344,6 +401,17 @@ export default function TradesScreen() {
           <Text style={styles.sectionTitle} allowFontScaling={false}>
             ACTIVE POSITIONS ({positions.length})
           </Text>
+          {positions.length > 0 && (
+            <TouchableOpacity
+              style={styles.closeAllBtn}
+              onPress={handleCloseAllPositions}
+              disabled={submitting}
+            >
+              <Text style={styles.closeAllBtnText} allowFontScaling={false}>
+                CLOSE ALL ({positions.length})
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {positions.length === 0 ? (
@@ -381,12 +449,21 @@ export default function TradesScreen() {
                     <Text style={styles.ticketSymbol} allowFontScaling={false}>{pos.symbol}</Text>
                     <Text style={styles.ticketVolume} allowFontScaling={false}>{pos.volume.toFixed(2)} lots</Text>
                   </View>
-                  <Text
-                    style={[styles.ticketProfit, { color: isProfit ? '#35E68A' : '#EF4444' }]}
-                    allowFontScaling={false}
-                  >
-                    {isProfit ? '+' : ''}${(pos.profit || 0).toFixed(2)}
-                  </Text>
+                  <View style={styles.profitAndCloseCol}>
+                    <Text
+                      style={[styles.ticketProfit, { color: isProfit ? '#35E68A' : '#EF4444' }]}
+                      allowFontScaling={false}
+                    >
+                      {isProfit ? '+' : ''}${(pos.profit || 0).toFixed(2)}
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.ticketCloseBtn}
+                      onPress={() => handleClosePosition(pos.ticket, pos.symbol)}
+                      disabled={submitting}
+                    >
+                      <Text style={styles.ticketCloseBtnText} allowFontScaling={false}>CLOSE</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
 
                 <View style={styles.ticketDetailsRow}>
@@ -794,5 +871,38 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#64748B',
     fontWeight: '600',
+  },
+
+  closeAllBtn: {
+    backgroundColor: '#EF44441F',
+    borderWidth: 1,
+    borderColor: '#EF444460',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  closeAllBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#EF4444',
+    letterSpacing: 0.8,
+  },
+  profitAndCloseCol: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  ticketCloseBtn: {
+    backgroundColor: '#EF444422',
+    borderWidth: 1,
+    borderColor: '#EF444455',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  ticketCloseBtnText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#EF4444',
+    letterSpacing: 0.5,
   },
 });
