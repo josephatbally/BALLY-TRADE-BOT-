@@ -7,6 +7,7 @@ import {
 
 // Authentication
 import LoginScreen from '../screens/LoginScreen';
+import BrokerSetupScreen from '../screens/BrokerSetupScreen';
 
 // Theme
 import {useTheme} from '../theme/ThemeContext';
@@ -110,6 +111,10 @@ export default function AppNavigator() {
         <Stack.Screen
           name="Login"
           component={LoginScreen}
+        />
+        <Stack.Screen
+          name="BrokerSetup"
+          component={BrokerSetupScreen}
         />
 
         {/* ============================================================
