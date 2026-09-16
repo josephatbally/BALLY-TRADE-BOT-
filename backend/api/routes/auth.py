@@ -12,7 +12,7 @@ from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 from backend.database import get_db_connection
 
@@ -22,7 +22,7 @@ router = APIRouter()
 
 class RegisterInitiateRequest(BaseModel):
     full_name: str
-    email: EmailStr
+    email: str
     phone: str
     country_code: str = "+255"
     channel: str = "email"  # 'email', 'sms', or 'whatsapp'
