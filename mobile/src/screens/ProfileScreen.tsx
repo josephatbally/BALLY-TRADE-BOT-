@@ -193,10 +193,9 @@ export default function ProfileScreen({
           style: 'destructive',
           onPress: async () => {
             try {
-              await AsyncStorage.multiRemove([
-                '@bally_auth_user',
-                '@bally_broker_credentials',
-              ]);
+              await AsyncStorage.removeItem('@bally_auth_user');
+              await AsyncStorage.removeItem('@bally_auth_token');
+              await AsyncStorage.removeItem('@bally_broker_credentials');
             } catch {
               // ignore
             }
