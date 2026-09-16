@@ -35,7 +35,7 @@ export default function SplashScreen({ navigation }: SplashScreenProps) {
 
   useEffect(() => {
     let active = true;
-    const timeouts: NodeJS.Timeout[] = [];
+    const timeouts: ReturnType<typeof setTimeout>[] = [];
 
     // 1. Entrance animation (fade & scale in)
     Animated.parallel([
