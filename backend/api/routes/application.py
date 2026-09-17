@@ -5,7 +5,7 @@ BALLY FLOW API - Application Routes
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
 from backend.main import (
@@ -15,6 +15,7 @@ from backend.trading_engine.modes.mode_controller import (
     TradingMode,
 )
 from backend.trading_engine.auto_trader import auto_trader
+from backend.security.jwt_auth import get_current_user
 
 router = APIRouter()
 
@@ -35,7 +36,7 @@ class BotSettingsRequest(BaseModel):
 
 
 @router.get("/status")
-def get_status():
+def get_status(current_user: Dict[str, Any] = Depends(get_current_user)):
     """
     Return complete application status.
     """
@@ -43,7 +44,7 @@ def get_status():
 
 
 @router.post("/start")
-def start_application():
+def start_application(current_user: Dict[str, Any] = Depends(get_current_user)):
     """
     Start application orchestration.
     """
@@ -51,7 +52,7 @@ def start_application():
 
 
 @router.post("/stop")
-def stop_application():
+def stop_application(current_user: Dict[str, Any] = Depends(get_current_user)):
     """
     Stop application orchestration.
     """
@@ -59,7 +60,7 @@ def stop_application():
 
 
 @router.get("/mode")
-def get_mode():
+def get_mode(current_user: Dict[str, Any] = Depends(get_current_user)):
     """
     Return active trading mode.
     """
@@ -73,7 +74,7 @@ def get_mode():
 
 
 @router.put("/mode")
-def set_mode(request: ModeRequest):
+def set_mode(request: ModeRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
     """
     Switch active trading mode (technical or hybrid).
     """
@@ -90,7 +91,7 @@ def set_mode(request: ModeRequest):
 
 
 @router.get("/bot/telemetry")
-def get_bot_telemetry():
+def get_bot_telemetry(current_user: Dict[str, Any] = Depends(get_current_user)):
     """
     Return live telemetry, heartbeat, and audit logs from the auto-trader daemon.
     """
@@ -98,7 +99,7 @@ def get_bot_telemetry():
 
 
 @router.post("/bot/toggle")
-def toggle_auto_trade(request: AutoTradeToggleRequest):
+def toggle_auto_trade(request: AutoTradeToggleRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
     """
     Toggle automatic trading execution on or off.
     """
@@ -111,7 +112,7 @@ def toggle_auto_trade(request: AutoTradeToggleRequest):
 
 
 @router.post("/bot/settings")
-def update_bot_settings(request: BotSettingsRequest):
+def update_bot_settings(request: BotSettingsRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
     """
     Update confidence threshold, risk percentage, and position limits.
     """
