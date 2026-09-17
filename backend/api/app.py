@@ -1,4 +1,7 @@
 from __future__ import annotations
+
+from backend.config.env import load_local_env
+load_local_env()
 from backend.trading_engine.ai.ai_engine import ai_engine
 """
 BALLY FLOW API
