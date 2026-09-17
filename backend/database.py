@@ -1,28 +1,34 @@
 """
 BALLY FLOW - SQLite Database Layer
-Persistent user registry, verification codes, multi-tenant broker profiles, and user order isolation.
+Persistent user registry, verification codes, multi-tenant broker profiles,
+user order isolation, and AI learning memory.
 """
 
 from __future__ import annotations
 import sqlite3
-import os
-from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any, List
 
 DB_DIR = Path(__file__).resolve().parent
 DB_PATH = DB_DIR / "bally_flow.db"
 
+
 def get_db_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(str(DB_PATH), timeout=10.0)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
-def init_db():
+
+def _add_column_if_missing(cursor: sqlite3.Cursor, table: str, column: str, definition: str) -> None:
+    columns = {row[1] for row in cursor.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in columns:
+        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def init_db() -> None:
     conn = get_db_connection()
     cursor = conn.cursor()
-    
-    # 1. Users Table
+
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,26 +40,103 @@ def init_db():
         status TEXT NOT NULL DEFAULT 'pending_verification',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
+    )
     """)
-    
-    # 2. Verification Codes (OTP) Table
+
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS verification_codes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER,
         identifier TEXT NOT NULL,
         channel TEXT NOT NULL DEFAULT 'email',
-        code TEXT NOT NULL,
+        code TEXT,
+        code_hash TEXT,
+        destination TEXT,
         expires_at TIMESTAMP NOT NULL,
         attempts INTEGER NOT NULL DEFAULT 0,
         is_used INTEGER NOT NULL DEFAULT 0,
+        verified_at TIMESTAMP,
+        delivery_status TEXT NOT NULL DEFAULT 'pending',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
+    )
     """)
 
-    # 3. Multi-Tenant Broker Profiles Table
+    # Safe migrations for databases created by earlier BALLY FLOW versions.
+    _add_column_if_missing(cursor, "verification_codes", "code_hash", "TEXT")
+    _add_column_if_missing(cursor, "verification_codes", "destination", "TEXT")
+    _add_column_if_missing(cursor, "verification_codes", "verified_at", "TIMESTAMP")
+    _add_column_if_missing(cursor, "verification_codes", "delivery_status", "TEXT NOT NULL DEFAULT 'pending'")
+    _add_column_if_missing(cursor, "users", "email_verified", "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(cursor, "users", "phone_verified", "INTEGER NOT NULL DEFAULT 0")
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        token_jti TEXT UNIQUE,
+        expires_at TIMESTAMP NOT NULL,
+        revoked_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS user_settings (
+        user_id INTEGER PRIMARY KEY,
+        min_confidence REAL DEFAULT 70.0,
+        risk_per_trade_pct REAL DEFAULT 1.0,
+        max_positions INTEGER DEFAULT 1,
+        scan_interval_seconds INTEGER DEFAULT 60,
+        trading_mode TEXT DEFAULT 'Technical',
+        theme TEXT DEFAULT 'SYSTEM',
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS risk_configurations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        risk_per_trade_pct REAL NOT NULL DEFAULT 1.0,
+        max_risk_pct REAL NOT NULL DEFAULT 2.0,
+        min_risk_pct REAL NOT NULL DEFAULT 0.10,
+        max_positions INTEGER NOT NULL DEFAULT 1,
+        min_rr REAL NOT NULL DEFAULT 1.0,
+        max_rr REAL NOT NULL DEFAULT 3.0,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS trading_preferences (
+        user_id INTEGER PRIMARY KEY,
+        trading_mode TEXT NOT NULL DEFAULT 'Technical',
+        approval_required INTEGER NOT NULL DEFAULT 1,
+        enabled INTEGER NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS audit_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        event_type TEXT NOT NULL,
+        channel TEXT,
+        ip_address TEXT,
+        metadata_json TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+    )
+    """)
+
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS broker_profiles (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,20 +152,11 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
+    )
     """)
-    
-    # Check and add columns if upgrading from older schema
-    try:
-        cursor.execute("ALTER TABLE broker_profiles ADD COLUMN password_encrypted TEXT")
-    except Exception:
-        pass
-    try:
-        cursor.execute("ALTER TABLE broker_profiles ADD COLUMN is_active INTEGER DEFAULT 1")
-    except Exception:
-        pass
+    _add_column_if_missing(cursor, "broker_profiles", "password_encrypted", "TEXT")
+    _add_column_if_missing(cursor, "broker_profiles", "is_active", "INTEGER DEFAULT 1")
 
-    # 4. Multi-Tenant User Orders Isolation Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS user_orders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,11 +169,9 @@ def init_db():
         status TEXT NOT NULL DEFAULT 'SUBMITTED',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
+    )
     """)
 
-    
-    # 5. Persistent AI Pattern & Structural Memory Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS ai_pattern_knowledge (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,10 +186,9 @@ def init_db():
         total_pnl REAL DEFAULT 0.0,
         avg_confidence REAL DEFAULT 0.0,
         last_observed TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
+    )
     """)
 
-    # 6. Persistent AI Continuous Symbol Learning Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS ai_symbol_learning (
         symbol TEXT PRIMARY KEY,
@@ -131,11 +202,11 @@ def init_db():
         trend_strength REAL DEFAULT 0.0,
         adaptive_multiplier REAL DEFAULT 1.0,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
+    )
     """)
 
     conn.commit()
     conn.close()
 
-# Auto-initialize on import
+
 init_db()
