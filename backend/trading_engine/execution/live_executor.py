@@ -95,16 +95,16 @@ VERSION = "1.1.0"
 # HARD LIVE-TRADING SWITCHES
 # ----------------------------------------------------------------------
 
-LIVE_TRADING = True
-EXECUTION_ENABLED = True
-ALLOW_ORDER_SEND = True
-EXECUTION_CONFIRMATION = True
+LIVE_TRADING = False
+EXECUTION_ENABLED = False
+ALLOW_ORDER_SEND = False
+EXECUTION_CONFIRMATION = False
 
 # ----------------------------------------------------------------------
 # DEVELOPMENT SAFETY
 # ----------------------------------------------------------------------
 
-DRY_RUN = False
+DRY_RUN = True
 
 # ----------------------------------------------------------------------
 # MT5 SETTINGS
