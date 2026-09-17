@@ -86,7 +86,7 @@ def calculate_dynamic_lot(
 
 class AutoTrader:
     def __init__(self):
-        self.enabled: bool = True
+        self.enabled: bool = False
         self.running: bool = False
         self._task: Optional[asyncio.Task] = None
         self.scan_interval: int = 5  # High-speed 5-second parallel scanning interval
@@ -101,6 +101,7 @@ class AutoTrader:
         self.last_scan_time: Optional[str] = None
         self.last_analysis_summary: Dict[str, Any] = {}
         self.logs: List[Dict[str, Any]] = []
+        self.owner_user_id: Optional[int] = None
 
     def _add_log(self, level: str, message: str, details: Any = None):
         entry = {
@@ -136,12 +137,14 @@ class AutoTrader:
     def toggle(self):
         return self.set_enabled(not self.enabled)
 
-    def set_enabled(self, val: bool):
+    def set_enabled(self, val: bool, user_id: Optional[int] = None):
+        if val and user_id is None:
+            raise ValueError("Authenticated user ownership is required to enable auto-trading.")
+        self.owner_user_id = int(user_id) if val and user_id is not None else None
         self.enabled = bool(val)
         if self.enabled:
             return bool(self.start())
-        else:
-            return bool(self.stop())
+        return bool(self.stop())
 
     def get_telemetry(self) -> Dict[str, Any]:
         return self.get_status()
@@ -151,6 +154,7 @@ class AutoTrader:
         positions = get_positions() if is_mt5_connected() else []
         return {
             "enabled": self.enabled,
+            "owner_user_id": self.owner_user_id,
             "running": self.running,
             "mt5_connected": is_mt5_connected(),
             "scan_interval": self.scan_interval,
