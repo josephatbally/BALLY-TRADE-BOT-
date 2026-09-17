@@ -1,266 +1,99 @@
-"""
-BALLY FLOW API - Open Positions Routes
-
-Read-only MT5 open-position information for the BALLY FLOW mobile app.
-
-This module is an API/presentation layer.
-
-It does NOT:
-    - place orders
-    - modify positions
-    - calculate risk
-    - perform execution validation
-    - make trading decisions
-"""
-
+"""BALLY FLOW API - authenticated open positions."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
-from backend.trading_engine.market_data.mt5_connection import (
-    get_positions,
-    is_mt5_connected,
-)
-
+from backend.security.jwt_auth import get_current_user
+from backend.trading_engine.market_data.mt5_connection import get_positions, is_mt5_connected
+from backend.trading_engine.tenant_router import tenant_router
+from backend.trading_engine.trading_account_runtime import get_authenticated_trading_account
 
 router = APIRouter()
 
 
-# ==================================================================
-# HELPERS
-# ==================================================================
-
-def _read_value(
-    position: Any,
-    name: str,
-    default: Any = None,
-) -> Any:
-    """Safely read a value from an MT5 position object."""
-
+def _read(position: Any, name: str, default: Any = None) -> Any:
     try:
-        return getattr(
-            position,
-            name,
-            default,
-        )
+        return getattr(position, name, default)
     except Exception:
         return default
 
 
-def _safe_float(
-    value: Any,
-) -> float:
-    """Convert a value to float safely."""
-
+def _float(value: Any) -> float:
     try:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
 
 
-def _safe_int(
-    value: Any,
-) -> int:
-    """Convert a value to int safely."""
-
+def _int(value: Any) -> int:
     try:
         return int(value)
     except (TypeError, ValueError):
         return 0
 
 
-def _position_type(
-    value: Any,
-) -> str:
-    """
-    Convert MT5 position type to a mobile-friendly direction.
-    """
+def _position_type(value: Any) -> str:
+    raw = _int(value)
+    return "BUY" if raw == 0 else "SELL" if raw == 1 else "UNKNOWN"
 
+
+def _open_time(value: Any) -> str | None:
     try:
-        raw_type = int(value)
-    except (TypeError, ValueError):
-        return "UNKNOWN"
-
-    # MetaTrader 5:
-    # POSITION_TYPE_BUY  = 0
-    # POSITION_TYPE_SELL = 1
-
-    if raw_type == 0:
-        return "BUY"
-
-    if raw_type == 1:
-        return "SELL"
-
-    return "UNKNOWN"
-
-
-def _format_open_time(
-    value: Any,
-) -> str | None:
-    """
-    Convert MT5 position time into an ISO-8601 UTC string.
-    """
-
-    if value is None:
-        return None
-
-    try:
-        timestamp = float(value)
-
-        return datetime.fromtimestamp(
-            timestamp,
-            tz=timezone.utc,
-        ).isoformat()
-
+        return datetime.fromtimestamp(float(value), tz=timezone.utc).isoformat()
     except (TypeError, ValueError, OSError, OverflowError):
         return None
 
 
-def _normalize_position(
-    position: Any,
-) -> Dict[str, Any]:
-    """
-    Convert a raw MT5 position object into the stable BALLY FLOW API
-    representation.
-    """
-
-    raw_type = _read_value(
-        position,
-        "type",
-    )
-
+def _normalize(position: Any) -> Dict[str, Any]:
     return {
-        "ticket": _safe_int(
-            _read_value(
-                position,
-                "ticket",
-            )
-        ),
-
-        "symbol": _read_value(
-            position,
-            "symbol",
-        ),
-
-        "type": _position_type(
-            raw_type
-        ),
-
-        "volume": _safe_float(
-            _read_value(
-                position,
-                "volume",
-            )
-        ),
-
-        "open_price": _safe_float(
-            _read_value(
-                position,
-                "price_open",
-            )
-        ),
-
-        "current_price": _safe_float(
-            _read_value(
-                position,
-                "price_current",
-            )
-        ),
-
-        "stop_loss": _safe_float(
-            _read_value(
-                position,
-                "sl",
-            )
-        ),
-
-        "take_profit": _safe_float(
-            _read_value(
-                position,
-                "tp",
-            )
-        ),
-
-        "profit": _safe_float(
-            _read_value(
-                position,
-                "profit",
-            )
-        ),
-
-        "swap": _safe_float(
-            _read_value(
-                position,
-                "swap",
-            )
-        ),
-
-        "magic": _safe_int(
-            _read_value(
-                position,
-                "magic",
-            )
-        ),
-
-        "comment": _read_value(
-            position,
-            "comment",
-        ),
-
-        "open_time": _format_open_time(
-            _read_value(
-                position,
-                "time",
-            )
-        ),
+        "ticket": _int(_read(position, "ticket")),
+        "symbol": _read(position, "symbol"),
+        "type": _position_type(_read(position, "type")),
+        "volume": _float(_read(position, "volume")),
+        "open_price": _float(_read(position, "price_open")),
+        "current_price": _float(_read(position, "price_current")),
+        "stop_loss": _float(_read(position, "sl")),
+        "take_profit": _float(_read(position, "tp")),
+        "profit": _float(_read(position, "profit")),
+        "swap": _float(_read(position, "swap")),
+        "magic": _int(_read(position, "magic")),
+        "comment": _read(position, "comment"),
+        "open_time": _open_time(_read(position, "time")),
     }
 
 
-# ==================================================================
-# OPEN POSITIONS
-# ==================================================================
-
 @router.get("")
-def get_open_positions() -> Dict[str, Any]:
+def get_open_positions(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     """
-    Return all currently open MT5 positions.
+    Return only live MT5 positions belonging to the authenticated tenant.
 
-    This endpoint is strictly read-only.
+    SQLite user_orders provides tenant ownership; MT5 provides the live
+    position fields. If the tenant has no active account or no recorded
+    tickets, this endpoint fails closed with an empty position set.
     """
+    user_id = int(user["id"])
+    account = get_authenticated_trading_account(user_id)
+    if not account:
+        return {"status": "NO_ACCOUNT", "connected": False, "count": 0, "positions": []}
 
     if not is_mt5_connected():
-        return {
-            "status": "OFFLINE",
-            "connected": False,
-            "count": 0,
-            "positions": [],
-        }
+        return {"status": "OFFLINE", "connected": False, "count": 0, "positions": []}
 
     try:
-        raw_positions = get_positions()
-
-        positions: List[Dict[str, Any]] = [
-            _normalize_position(position)
-            for position in raw_positions
-        ]
-
+        raw_positions = get_positions() or []
+        live_positions: List[Dict[str, Any]] = [_normalize(p) for p in raw_positions]
+        positions = tenant_router.filter_user_positions(user_id, live_positions)
         return {
             "status": "READY",
             "connected": True,
             "count": len(positions),
             "positions": positions,
         }
-
     except Exception as exc:
         raise HTTPException(
             status_code=503,
-            detail={
-                "message": (
-                    "Unable to retrieve MT5 open positions."
-                ),
-                "error": str(exc),
-            },
+            detail={"message": "Unable to retrieve MT5 open positions.", "error": str(exc)},
         ) from exc
