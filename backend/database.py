@@ -65,6 +65,14 @@ def _create_indexes(cursor: sqlite3.Cursor) -> None:
 
 
 def init_db() -> None:
+    """Initialize the DB-1 foundation and apply newer migrations safely.
+
+    DB-1 remains the base schema. Higher schema versions are never overwritten
+    by this initializer. If the database is below DB-2, the DB-2 migration is
+    invoked after the DB-1 connection is closed, avoiding a circular import and
+    keeping normal application startup migration-safe.
+    """
+    needs_db2_migration = False
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -250,13 +258,24 @@ def init_db() -> None:
 
         _create_indexes(cursor)
 
+        # DB-1 must never downgrade an already-migrated database.
         cursor.execute("""
         INSERT INTO schema_metadata(key, value)
         VALUES ('db_schema_version', ?)
         ON CONFLICT(key) DO UPDATE SET
-            value=excluded.value,
+            value=CASE
+                WHEN CAST(schema_metadata.value AS INTEGER) < CAST(excluded.value AS INTEGER)
+                THEN excluded.value
+                ELSE schema_metadata.value
+            END,
             updated_at=CURRENT_TIMESTAMP
         """, (str(DB_SCHEMA_VERSION),))
+
+        current_version_row = cursor.execute(
+            "SELECT value FROM schema_metadata WHERE key='db_schema_version'"
+        ).fetchone()
+        current_version = int(current_version_row[0]) if current_version_row else DB_SCHEMA_VERSION
+        needs_db2_migration = current_version < 2
 
         conn.commit()
     except Exception:
@@ -264,6 +283,11 @@ def init_db() -> None:
         raise
     finally:
         conn.close()
+
+    if needs_db2_migration:
+        from backend.db2_migration import migrate_db2
+
+        migrate_db2()
 
 
 init_db()
