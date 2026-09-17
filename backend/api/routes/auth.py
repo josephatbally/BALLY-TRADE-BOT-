@@ -14,6 +14,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from backend.database import get_db_connection
+from backend.config.env import load_local_env
+load_local_env()
+
 from backend.security.jwt_auth import create_access_token, get_current_user, get_current_user_optional
 from backend.trading_engine.trading_account_persistence import create_trading_account, get_active_trading_account
 
