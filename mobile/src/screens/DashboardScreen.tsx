@@ -356,8 +356,9 @@ export default function DashboardScreen({
              * The backend status uses RUNNING / STOPPED.
              */
             setApplicationRunning(
-              status?.status === 'RUNNING',
+              status?.running === true || status?.status === 'RUNNING',
             );
+            setBotEnabled(status?.auto_trading_enabled === true);
 
             /*
              * Keep the dashboard mode synchronized
