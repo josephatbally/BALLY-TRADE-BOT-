@@ -1,3 +1,5 @@
+from backend.trading_engine.modes.mode_controller import get_mode_controller, TradingMode
+from backend.trading_engine.hybrid.hybrid_engine import analyze_hybrid_market
 from backend.trading_engine.ai.ai_engine import ai_engine
 """
 BALLY FLOW - High-Speed Intelligent Auto-Trading Engine
@@ -204,6 +206,32 @@ class AutoTrader:
             confidence_val = analysis.get("confidence", 0.0) if isinstance(analysis, dict) else 0.0
             confidence = confidence_val.get("score", 0.0) if isinstance(confidence_val, dict) else float(confidence_val or 0.0)
             
+            # Check active operating mode: TECHNICAL vs HYBRID
+            mode_ctrl = get_mode_controller()
+            active_mode = mode_ctrl.mode.value
+            fundamental_info = {}
+
+            if mode_ctrl.is_hybrid():
+                hybrid_res = await asyncio.to_thread(analyze_hybrid_market, symbol=symbol, technical_result=analysis)
+                alignment = hybrid_res.get("alignment", "UNKNOWN")
+                hybrid_signal = hybrid_res.get("hybrid_signal", "NO_TRADE")
+                hybrid_conf = float(hybrid_res.get("hybrid_confidence", 0.0) or 0.0)
+                fundamental_info = hybrid_res.get("fundamental", {})
+
+                if hybrid_signal in ["BUY", "SELL"] and alignment in ["BUY_ALIGNED", "SELL_ALIGNED"]:
+                    action = hybrid_signal
+                    confidence = hybrid_conf
+                    self._add_log(f"[HYBRID] {symbol} {alignment}: Tech & News ALIGNED -> {action} ({confidence:.1f}%)")
+                else:
+                    self._add_log(f"[HYBRID SAFETY] {symbol} blocked by news conflict: {alignment} (Tech: {action})")
+                    self.last_analysis_summary[symbol] = {
+                        "action": "NO_TRADE",
+                        "confidence": hybrid_conf,
+                        "mode": active_mode,
+                        "alignment": alignment,
+                    }
+                    return False
+
             # AI Continuous Market Learning & Structural Adaptation
             ai_study = ai_engine.study_market(symbol=symbol, timeframe="M15", candles=[], technical_analysis=analysis if isinstance(analysis, dict) else {})
             multiplier = ai_study.get("multiplier", 1.0)
@@ -212,6 +240,7 @@ class AutoTrader:
             self.last_analysis_summary[symbol] = {
                 "action": action,
                 "confidence": confidence,
+                "mode": active_mode,
                 "regime": ai_study.get("regime", "BALANCED_RANGE"),
                 "ai_samples": ai_study.get("samples_learned", 0),
             }

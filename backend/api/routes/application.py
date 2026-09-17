@@ -63,15 +63,30 @@ def get_mode():
     """
     Return active trading mode.
     """
-    return {"mode": application.mode.value}
+    from backend.trading_engine.modes.mode_controller import get_mode_controller
+    mode_ctrl = get_mode_controller()
+    return {
+        "mode": mode_ctrl.mode.value,
+        "is_hybrid": mode_ctrl.is_hybrid(),
+        "is_technical": mode_ctrl.is_technical(),
+    }
 
 
 @router.put("/mode")
 def set_mode(request: ModeRequest):
     """
-    Switch active trading mode.
+    Switch active trading mode (technical or hybrid).
     """
-    return application.set_mode(request.mode)
+    from backend.trading_engine.modes.mode_controller import get_mode_controller
+    mode_ctrl = get_mode_controller()
+    mode_ctrl.set_mode(request.mode)
+    application.set_mode(request.mode)
+    return {
+        "status": "OK",
+        "mode": mode_ctrl.mode.value,
+        "is_hybrid": mode_ctrl.is_hybrid(),
+        "is_technical": mode_ctrl.is_technical(),
+    }
 
 
 @router.get("/bot/telemetry")

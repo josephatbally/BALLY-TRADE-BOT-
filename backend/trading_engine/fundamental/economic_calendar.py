@@ -102,12 +102,16 @@ def get_events(
         }
 
     if provider is None:
-        return {
-            "status": "NO_PROVIDER",
-            "symbol": symbol,
-            "events": [],
-            "provider_available": False,
-        }
+        try:
+            from backend.trading_engine.fundamental.live_news_provider import get_default_fundamental_provider
+            provider = get_default_fundamental_provider()
+        except Exception:
+            return {
+                "status": "NO_PROVIDER",
+                "symbol": symbol,
+                "events": [],
+                "provider_available": False,
+            }
 
     try:
         if hasattr(provider, "get_events"):

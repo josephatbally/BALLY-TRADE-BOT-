@@ -1,3 +1,4 @@
+import { fetchTradingMode, updateTradingMode } from '../api/modeApi';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 ﻿
 import React from 'react';
@@ -222,22 +223,34 @@ export default function TradingPreferencesScreen({
    * Backend synchronization is intentionally NOT performed here.
    */
 
-  const savePreferences = () => {
+  const savePreferences = async () => {
     if (!validatePreferences()) {
       return;
     }
 
-    setSaved(true);
+    try {
+      const prefsPayload = {
+        tradingMode,
+        lotSize,
+        minConfidence,
+        riskReward,
+        slPips,
+        tpPips,
+        selectedMarkets,
+        updatedAt: new Date().toISOString(),
+      };
+      await AsyncStorage.setItem('@bally_trading_preferences', JSON.stringify(prefsPayload));
+      const synced = await updateTradingMode(tradingMode);
+      setSaved(true);
 
-    Alert.alert(
-      'Preferences Saved',
-      'Your trading preferences have been saved locally.',
-      [
-        {
-          text: 'OK',
-        },
-      ],
-    );
+      Alert.alert(
+        'Preferences Saved & Synchronized',
+        `Active Mode: ${tradingMode.toUpperCase()}${synced ? ' (Connected to Engine)' : ' (Saved Locally)'}\n\nAll risk thresholds and pair selections updated successfully.`,
+        [{ text: 'OK' }],
+      );
+    } catch (e) {
+      Alert.alert('Save Error', 'Failed to save preferences.');
+    }
   };
 
   /*
