@@ -264,7 +264,7 @@ export default function SecurityScreen({ route, navigation }: Props) {
               <Text style={styles.rowTitle}>Biometric Login</Text>
               <Text style={styles.rowSubtitle}>
                 {sensorAvailable
-                  ? 
+                  ? ('Authenticate with device ' + sensorType)
                   : 'Enroll biometric credentials in device settings to enable'}
               </Text>
             </View>
