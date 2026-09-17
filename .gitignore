@@ -1,5 +1,4 @@
-<<<<<<< HEAD
-﻿# ============================================================
+# ============================================================
 # BALLY TRADES BOT - SECURITY / GIT IGNORE
 # ============================================================
 
@@ -183,5 +182,3 @@ mobile/android/app/debug.keystore
 
 # Temporary mobile development files
 mobile/src/temp_*.txt
-=======
->>>>>>> origin/main
