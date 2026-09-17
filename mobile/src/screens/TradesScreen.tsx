@@ -9,6 +9,7 @@ import {
   RefreshControl,
   Alert,
   TextInput,
+  Image,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { getMarketQuotes, MarketQuote } from '../api/marketsApi';
@@ -31,6 +32,24 @@ export default function TradesScreen() {
   const [orderType, setOrderType] = useState<'BUY' | 'SELL'>('BUY');
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const loadPhoto = () => {
+      AsyncStorage.getItem('@bally_profile_photo')
+        .then(photo => {
+          if (active && photo) setAvatarUri(photo);
+        })
+        .catch(() => {});
+    };
+    loadPhoto();
+    const interval = setInterval(loadPhoto, 4000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   // Fetch telemetry & quotes
   const fetchAllData = useCallback(async () => {
@@ -209,11 +228,23 @@ export default function TradesScreen() {
             DIRECT MT5 RISK & ORDER DESK
           </Text>
         </View>
-        <View style={styles.statusBadge}>
-          <View style={styles.statusDotLive} />
-          <Text style={styles.statusBadgeText} allowFontScaling={false}>
-            DESK ACTIVE
-          </Text>
+        <View style={styles.headerRightGroup}>
+          <View style={styles.statusBadge}>
+            <View style={styles.statusDotLive} />
+            <Text style={styles.statusBadgeText} allowFontScaling={false}>
+              DESK ACTIVE
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.headerAvatarBtn}
+            onPress={() => navigation.navigate('Profile')}
+            accessibilityLabel="Open profile">
+            {avatarUri ? (
+              <Image source={{ uri: avatarUri }} style={styles.headerAvatarImg} />
+            ) : (
+              <Text style={styles.headerAvatarFallback}>⚡</Text>
+            )}
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -515,6 +546,32 @@ const styles = StyleSheet.create({
     height: 200,
     borderRadius: 100,
     backgroundColor: '#35E68A0A',
+  },
+  headerRightGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  headerAvatarBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#0F1626',
+    borderWidth: 1.5,
+    borderColor: '#7083FF40',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  headerAvatarImg: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 18,
+  },
+  headerAvatarFallback: {
+    color: '#7083FF',
+    fontSize: 14,
+    fontWeight: '700',
   },
   header: {
     paddingHorizontal: 20,
