@@ -68,10 +68,6 @@ def _local_verification_enabled() -> bool:
     return AUTH_VERIFICATION_MODE in {"local", "dev", "development"}
 
 
-def _local_verification_enabled() -> bool:
-    return AUTH_VERIFICATION_MODE in {"local", "dev", "development"}
-
-
 def _local_code_hash(code: str) -> str:
     return hashlib.sha256(code.encode("utf-8")).hexdigest()
 
