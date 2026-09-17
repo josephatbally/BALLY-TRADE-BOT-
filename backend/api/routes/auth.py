@@ -23,6 +23,7 @@ from backend.trading_engine.trading_account_persistence import create_trading_ac
 router = APIRouter()
 OTP_TTL_SECONDS = 600
 OTP_RESEND_SECONDS = 30
+AUTH_VERIFICATION_MODE = os.getenv("AUTH_VERIFICATION_MODE", "provider").strip().lower()
 ALLOWED_CHANNELS = {"email", "sms", "whatsapp"}
 
 
@@ -58,6 +59,31 @@ class BrokerProfileRequest(BaseModel):
     leverage: int = 100
     is_demo: bool = True
 
+
+
+def _local_verification_enabled() -> bool:
+    return AUTH_VERIFICATION_MODE in {"local", "dev", "development"}
+
+
+def _activate_user_locally(conn, user: Any, channel: str) -> dict[str, Any]:
+    """Development-only verification path; no OTP provider or plaintext code is used."""
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET status='active', email_verified=?, phone_verified=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+        (1 if channel == "email" else 0, 1 if channel != "email" else 0, user["id"]),
+    )
+    cur.execute("SELECT * FROM users WHERE id=?", (user["id"],))
+    activated = cur.fetchone()
+    conn.commit()
+    token = create_access_token(str(activated["id"]), activated["email"], activated["role"])
+    return {
+        "status": "VERIFIED",
+        "verification_required": False,
+        "message": "Account verified in local development mode. External OTP delivery is disabled.",
+        "token": token,
+        "token_type": "bearer",
+        "user": {k: activated[k] for k in ("id", "full_name", "email", "phone", "country_code", "role", "status", "email_verified", "phone_verified")},
+    }
 
 def _channel(value: str) -> str:
     value = value.strip().lower()
@@ -151,7 +177,10 @@ def register_initiate(req: RegisterInitiateRequest):
         conn.commit()
         cur.execute("SELECT * FROM users WHERE id=?", (user_id,))
         user = cur.fetchone()
-        return _issue_verification(conn, user, _channel(req.channel))
+        channel = _channel(req.channel)
+        if _local_verification_enabled():
+            return _activate_user_locally(conn, user, channel)
+        return _issue_verification(conn, user, channel)
     finally:
         conn.close()
 
@@ -169,6 +198,8 @@ def login_initiate(req: LoginInitiateRequest):
             raise HTTPException(404, "No user found with this email or phone. Please create an account.")
         if user["status"] != "active":
             raise HTTPException(403, "Account is not verified. Complete registration verification first.")
+        if _local_verification_enabled():
+            return _activate_user_locally(conn, user, channel)
         return _issue_verification(conn, user, channel)
     finally:
         conn.close()
