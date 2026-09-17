@@ -103,7 +103,8 @@ def toggle_auto_trade(request: AutoTradeToggleRequest, current_user: Dict[str, A
     """
     Toggle automatic trading execution on or off.
     """
-    enabled = auto_trader.set_enabled(request.enabled)
+    user_id = int(current_user["id"])
+    enabled = auto_trader.set_enabled(request.enabled, user_id=user_id)
     application.set_auto_trading(enabled)
     return {
         "status": "OK",
