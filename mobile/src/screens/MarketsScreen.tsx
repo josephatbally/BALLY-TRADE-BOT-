@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import PairLogo from '../components/broker/PairLogo';
 import {
   ActivityIndicator,
   Pressable,
@@ -266,6 +267,7 @@ export default function MarketsScreen({ navigation }: any) {
                 <View style={styles.cardHeader}>
                   <View>
                     <View style={styles.symbolBadgeRow}>
+                      <PairLogo symbol={market.symbol} size={30} style={{ marginRight: 8 }} />
                       <Text allowFontScaling={false} style={styles.cardSymbol}>
                         {market.symbol}
                       </Text>
