@@ -1,4 +1,5 @@
 import BrokerLogo from '../components/broker/BrokerLogo';
+import PairLogo from '../components/broker/PairLogo';
 ﻿import Svg, { Defs, LinearGradient, Stop, Polygon, Polyline, Circle } from 'react-native-svg';
 import { getMarketQuotes, MarketQuote } from '../api/marketsApi';
 import { getHistorySummary, HistorySummaryResponse } from '../api/historyApi';
@@ -1196,11 +1197,14 @@ export default function DashboardScreen({
                 idx % 2 === 1 && styles.marketTableRowAlt,
                 pressed && styles.quickCardPressed,
               ]}>
-              <View style={{ width: 85 }}>
-                <Text allowFontScaling={false} style={styles.tableSymbol}>{market.symbol}</Text>
-                <Text allowFontScaling={false} style={styles.tablePairType}>
-                  {market.symbol.includes('XAU') || market.symbol.includes('XAG') ? 'COMMODITY' : (market.symbol.includes('NAS') || market.symbol.includes('TEC') || market.symbol.includes('100')) ? 'INDEX' : 'FOREX'}
-                </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', width: 110 }}>
+                <PairLogo symbol={market.symbol} size={28} style={{ marginRight: 6 }} />
+                <View>
+                  <Text allowFontScaling={false} style={styles.tableSymbol}>{market.symbol}</Text>
+                  <Text allowFontScaling={false} style={styles.tablePairType}>
+                    {market.symbol.includes('XAU') || market.symbol.includes('XAG') ? 'COMMODITY' : (market.symbol.includes('NAS') || market.symbol.includes('TEC') || market.symbol.includes('100')) ? 'INDEX' : 'FOREX'}
+                  </Text>
+                </View>
               </View>
               <View style={{ width: 90, paddingRight: 6, alignItems: 'flex-start', justifyContent: 'center' }}>
                 <Text allowFontScaling={false} style={[styles.tablePrice, { fontVariant: ['tabular-nums'] }]}>
