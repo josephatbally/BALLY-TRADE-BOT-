@@ -1,22 +1,21 @@
-"""
-BALLY FLOW - User Authentication & OTP Verification Router (Phase 2 & 3)
-Handles registration, sign-in, 6-digit OTP codes, JWT session token generation,
-Gmail SMTP email dispatch, and multi-tenant broker profile persistence.
-"""
-
+"""BALLY FLOW authentication and multi-channel OTP delivery."""
 from __future__ import annotations
-import os
-import smtplib
-import secrets
-from pathlib import Path
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, HTTPException, status, Depends
-from pydantic import BaseModel
 
-# Try auto-loading .env from project root
+import hashlib
+import hmac
+import json
+import os
+import secrets
+import smtplib
+from datetime import datetime, timedelta
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, EmailStr, Field
+
 try:
     from dotenv import load_dotenv
     env_path = Path(__file__).resolve().parent.parent.parent / ".env"
@@ -26,34 +25,37 @@ except Exception:
     pass
 
 from backend.database import get_db_connection
-from backend.security.jwt_auth import (
-    create_access_token, 
-    get_current_user,
-    get_current_user_optional
-)
+from backend.security.jwt_auth import create_access_token, get_current_user, get_current_user_optional
 
 router = APIRouter()
+OTP_TTL_SECONDS = 300
+OTP_MAX_ATTEMPTS = 5
+OTP_RESEND_SECONDS = 30
+ALLOWED_CHANNELS = {"email", "sms", "whatsapp"}
 
-# ----------------- PYDANTIC SCHEMAS -----------------
 
 class RegisterInitiateRequest(BaseModel):
-    full_name: str
-    email: str
-    phone: str
-    country_code: str = "+255"
+    full_name: str = Field(min_length=2, max_length=120)
+    email: EmailStr
+    phone: str = Field(min_length=5, max_length=30)
+    country_code: str = Field(default="+255", min_length=2, max_length=8)
     channel: str = "email"
+
 
 class LoginInitiateRequest(BaseModel):
-    identifier: str
+    identifier: str = Field(min_length=3, max_length=160)
     channel: str = "email"
+
 
 class VerifyCodeRequest(BaseModel):
-    identifier: str
-    code: str
+    identifier: str = Field(min_length=3, max_length=160)
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+
 
 class ResendCodeRequest(BaseModel):
-    identifier: str
+    identifier: str = Field(min_length=3, max_length=160)
     channel: str = "email"
+
 
 class BrokerProfileRequest(BaseModel):
     broker_server: str
@@ -64,460 +66,276 @@ class BrokerProfileRequest(BaseModel):
     leverage: int = 100
     is_demo: bool = True
 
-# ----------------- DISPATCH HELPERS -----------------
 
-def send_email_otp(to_email: str, code: str, user_name: str) -> bool:
-    """
-    Sends institutional 6-digit OTP verification email.
-    Optimized for Gmail SMTP (smtp.gmail.com) with TLS port 587 or SSL port 465.
-    """
-    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
-    smtp_port_raw = os.getenv("SMTP_PORT", "587").strip()
-    smtp_port = int(smtp_port_raw) if smtp_port_raw.isdigit() else 587
-    smtp_user = os.getenv("SMTP_USER", "").strip()
-    # Google App Passwords often have spaces (e.g. 'abcd efgh ijkl mnop')
-    smtp_pass = os.getenv("SMTP_PASS", "").replace(" ", "").strip()
-    from_email = os.getenv("SMTP_FROM", smtp_user or "josephatbally5@gmail.com").strip()
+def _channel(value: str) -> str:
+    value = value.strip().lower()
+    if value not in ALLOWED_CHANNELS:
+        raise HTTPException(status_code=400, detail="Unsupported verification channel.")
+    return value
 
-    if not (smtp_user and smtp_pass):
-        print(f"\n[BALLY FLOW EMAIL GATEWAY] Gmail SMTP credentials not set in environment or .env.")
-        print(f"OTP for {to_email}: >>> {code} <<< (Dev fallback displayed in console)\n")
+
+def _otp_hash(code: str) -> str:
+    secret = os.getenv("OTP_HASH_SECRET", "").strip()
+    if not secret:
+        raise RuntimeError("OTP_HASH_SECRET is not configured")
+    return hmac.new(secret.encode(), code.encode(), hashlib.sha256).hexdigest()
+
+
+def _generate_otp() -> str:
+    return f"{secrets.randbelow(900000) + 100000}"
+
+
+def _send_email_otp(to_email: str, code: str, user_name: str) -> bool:
+    host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
+    port_raw = os.getenv("SMTP_PORT", "587").strip()
+    port = int(port_raw) if port_raw.isdigit() else 587
+    username = os.getenv("SMTP_USER", "").strip()
+    password = os.getenv("SMTP_PASS", "").replace(" ", "").strip()
+    from_email = os.getenv("SMTP_FROM", username).strip()
+    if not username or not password or not from_email:
         return False
 
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"{code} is your BALLY FLOW verification code"
+    msg["From"] = f"BALLY FLOW Security <{from_email}>"
+    msg["To"] = to_email
+    msg.attach(MIMEText(
+        f"Hello {user_name},\n\nYour BALLY FLOW verification code is {code}. "
+        f"It expires in 5 minutes. Never share this code.", "plain"
+    ))
+    msg.attach(MIMEText(
+        f"<div style='font-family:Arial;padding:24px'><h2>BALLY FLOW</h2>"
+        f"<p>Hello <b>{user_name}</b>,</p><p>Your verification code is:</p>"
+        f"<h1 style='letter-spacing:8px'>{code}</h1><p>Expires in 5 minutes.</p>"
+        f"<p>Never share this code with anyone.</p></div>", "html"
+    ))
     try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"{code} is your BALLY FLOW Verification Code"
-        msg["From"] = f"BALLY FLOW Security <{from_email}>"
-        msg["To"] = to_email
-
-        text = (
-            f"Hello {user_name},\n\n"
-            f"Your BALLY FLOW verification code is: {code}\n\n"
-            f"Valid for 5 minutes. Enter this code in your BALLY FLOW terminal to authenticate.\n"
-            f"If you did not request this verification, please secure your account immediately.\n\n"
-            f"BALLY FLOW QUANTUM COCKPIT"
-        )
-
-        html = f"""
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <meta charset="utf-8">
-            <style>
-              body {{ background-color: #05070D; color: #FFFFFF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 24px; }}
-              .card {{ max-width: 480px; margin: 0 auto; background: #0A0E18; border: 1px solid #1E293B; border-radius: 18px; padding: 32px 24px; text-align: center; box-shadow: 0 12px 30px rgba(0,0,0,0.5); }}
-              .brand {{ color: #FFFFFF; font-size: 24px; font-weight: 900; letter-spacing: 3px; margin: 0; }}
-              .badge {{ display: inline-block; background: rgba(53, 230, 138, 0.12); border: 1px solid rgba(53, 230, 138, 0.3); border-radius: 12px; padding: 4px 12px; color: #35E68A; font-size: 10px; font-weight: 800; letter-spacing: 1.5px; margin-top: 8px; }}
-              .greeting {{ color: #94A3B8; font-size: 14px; margin-top: 24px; }}
-              .code-box {{ margin: 24px 0; background: #05070D; border: 1px solid #334BFF; border-radius: 12px; padding: 18px; }}
-              .code-value {{ font-size: 34px; font-weight: 900; letter-spacing: 10px; color: #35E68A; margin: 0; font-family: 'Courier New', Courier, monospace; }}
-              .notice {{ color: #64748B; font-size: 12px; line-height: 18px; margin-top: 14px; }}
-              .footer {{ border-top: 1px solid #172032; margin-top: 28px; padding-top: 16px; color: #475569; font-size: 10px; letter-spacing: 1px; }}
-            </style>
-          </head>
-          <body>
-            <div class="card">
-              <h1 class="brand">BALLY FLOW</h1>
-              <div class="badge">INSTITUTIONAL QUANTUM COCKPIT</div>
-              <p class="greeting">Hello <strong style="color: #FFFFFF;">{user_name}</strong>,<br>Use the 6-digit security code below to authorize your session:</p>
-              
-              <div class="code-box">
-                <div class="code-value">{code}</div>
-              </div>
-              
-              <p class="notice">
-                Code expires in <strong>5 minutes</strong>.<br>
-                Never share this code with anyone. BALLY FLOW staff will never ask for your code.
-              </p>
-              
-              <div class="footer">
-                BALLY FLOW HIGH-FREQUENCY TRADING ENGINE • ZERO-TRUST PROTOCOL
-              </div>
-            </div>
-          </body>
-        </html>
-        """
-        msg.attach(MIMEText(text, "plain"))
-        msg.attach(MIMEText(html, "html"))
-
-        # Support SSL (465) or STARTTLS (587)
-        if smtp_port == 465:
-            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=12) as server:
-                server.login(smtp_user, smtp_pass)
+        if port == 465:
+            with smtplib.SMTP_SSL(host, port, timeout=12) as server:
+                server.login(username, password)
                 server.sendmail(from_email, [to_email], msg.as_string())
         else:
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=12) as server:
-                server.ehlo()
-                server.starttls()
-                server.ehlo()
-                server.login(smtp_user, smtp_pass)
+            with smtplib.SMTP(host, port, timeout=12) as server:
+                server.ehlo(); server.starttls(); server.ehlo()
+                server.login(username, password)
                 server.sendmail(from_email, [to_email], msg.as_string())
-        
-        print(f"[BALLY FLOW EMAIL GATEWAY] Successfully sent OTP email via Gmail to {to_email}")
         return True
     except Exception as exc:
-        print(f"[AUTH ERROR] Failed dispatching Gmail OTP email: {exc}")
+        print(f"[BALLY FLOW EMAIL] delivery failed: {exc}")
         return False
 
-# ----------------- ROUTE HANDLERS -----------------
+
+def _send_sms_otp(phone: str, code: str, user_name: str) -> bool:
+    """Provider-neutral SMS adapter. Configure the provider in the backend, never in mobile."""
+    provider_url = os.getenv("SMS_PROVIDER_URL", "").strip()
+    api_key = os.getenv("SMS_PROVIDER_API_KEY", "").strip()
+    if not provider_url or not api_key:
+        return False
+    # HTTP transport is intentionally isolated here; wire the selected provider's exact
+    # payload in deployment configuration/module rather than exposing credentials to the app.
+    try:
+        import urllib.request
+        payload = json.dumps({"to": phone, "message": f"BALLY FLOW verification code: {code}"}).encode()
+        request = urllib.request.Request(provider_url, data=payload, method="POST", headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+        with urllib.request.urlopen(request, timeout=12) as response:
+            return 200 <= response.status < 300
+    except Exception as exc:
+        print(f"[BALLY FLOW SMS] delivery failed: {exc}")
+        return False
+
+
+def _send_whatsapp_otp(phone: str, code: str, user_name: str) -> bool:
+    """Provider-neutral WhatsApp adapter for a WhatsApp Business API-compatible gateway."""
+    provider_url = os.getenv("WHATSAPP_PROVIDER_URL", "").strip()
+    api_key = os.getenv("WHATSAPP_PROVIDER_API_KEY", "").strip()
+    if not provider_url or not api_key:
+        return False
+    try:
+        import urllib.request
+        payload = json.dumps({"to": phone, "message": f"BALLY FLOW verification code: {code}"}).encode()
+        request = urllib.request.Request(provider_url, data=payload, method="POST", headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+        with urllib.request.urlopen(request, timeout=12) as response:
+            return 200 <= response.status < 300
+    except Exception as exc:
+        print(f"[BALLY FLOW WHATSAPP] delivery failed: {exc}")
+        return False
+
+
+def _dispatch(channel: str, email: str, phone: str, code: str, user_name: str) -> bool:
+    if channel == "email":
+        return _send_email_otp(email, code, user_name)
+    if channel == "sms":
+        return _send_sms_otp(phone, code, user_name)
+    return _send_whatsapp_otp(phone, code, user_name)
+
+
+def _issue_otp(conn, user_id: int, email: str, phone: str, user_name: str, channel: str) -> dict:
+    channel = _channel(channel)
+    code = _generate_otp()
+    destination = email if channel == "email" else phone
+    code_hash = _otp_hash(code)
+    expires_at = datetime.utcnow() + timedelta(seconds=OTP_TTL_SECONDS)
+    cur = conn.cursor()
+    cur.execute("UPDATE verification_codes SET is_used = 1 WHERE user_id = ? AND is_used = 0", (user_id,))
+    cur.execute("""
+        INSERT INTO verification_codes
+        (user_id, identifier, channel, code, code_hash, destination, expires_at, attempts, is_used, delivery_status)
+        VALUES (?, ?, ?, NULL, ?, ?, ?, 0, 0, 'pending')
+    """, (user_id, destination, channel, code_hash, destination, expires_at.strftime("%Y-%m-%d %H:%M:%S")))
+    otp_id = cur.lastrowid
+    conn.commit()
+
+    delivered = _dispatch(channel, email, phone, code, user_name)
+    cur.execute("UPDATE verification_codes SET delivery_status = ? WHERE id = ?", ("sent" if delivered else "failed", otp_id))
+    conn.commit()
+    if not delivered:
+        raise HTTPException(status_code=503, detail=f"Unable to deliver verification code via {channel}. Please try again or choose another method.")
+    return {"status": "SENT", "identifier": destination, "channel": channel, "expires_in_seconds": OTP_TTL_SECONDS}
+
+
+def _normalise_identifier(identifier: str) -> str:
+    value = identifier.strip()
+    return value.lower() if "@" in value else value
+
 
 @router.post("/register-initiate")
 def register_initiate(req: RegisterInitiateRequest):
-    full_name = req.full_name.strip()
-    email = req.email.strip().lower()
+    email = str(req.email).strip().lower()
     phone = req.phone.strip()
-    country_code = req.country_code.strip()
-    channel = req.channel.strip().lower()
-
-    code = f"{secrets.randbelow(900000) + 100000}"
-    expires_at = datetime.utcnow() + timedelta(minutes=5)
-
+    channel = _channel(req.channel)
     conn = get_db_connection()
-    cursor = conn.cursor()
-
     try:
-        cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
-        existing_user = cursor.fetchone()
-
-        if existing_user:
-            user_id = existing_user["id"]
-            cursor.execute("""
-                UPDATE users 
-                SET full_name = ?, phone = ?, country_code = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """, (full_name, phone, country_code, user_id))
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM users WHERE email = ?", (email,))
+        row = cur.fetchone()
+        if row:
+            user_id = row["id"]
+            cur.execute("UPDATE users SET full_name=?, phone=?, country_code=?, status='pending_verification', updated_at=CURRENT_TIMESTAMP WHERE id=?", (req.full_name.strip(), phone, req.country_code.strip(), user_id))
         else:
-            cursor.execute("SELECT COUNT(*) AS total FROM users")
-            user_count = cursor.fetchone()["total"]
-            role = "admin" if user_count == 0 else "trader"
-
-            cursor.execute("""
-                INSERT INTO users (full_name, email, phone, country_code, role, status)
-                VALUES (?, ?, ?, ?, ?, 'pending_verification')
-            """, (full_name, email, phone, country_code, role))
-            user_id = cursor.lastrowid
-
-        cursor.execute("""
-            UPDATE verification_codes 
-            SET is_used = 1 
-            WHERE identifier = ? AND is_used = 0
-        """, (email,))
-
-        cursor.execute("""
-            INSERT INTO verification_codes (user_id, identifier, channel, code, expires_at, attempts, is_used)
-            VALUES (?, ?, ?, ?, ?, 0, 0)
-        """, (user_id, email, channel, code, expires_at.strftime("%Y-%m-%d %H:%M:%S")))
-
+            cur.execute("SELECT COUNT(*) AS total FROM users")
+            role = "admin" if cur.fetchone()["total"] == 0 else "trader"
+            cur.execute("INSERT INTO users (full_name,email,phone,country_code,role,status) VALUES (?,?,?,?,?,'pending_verification')", (req.full_name.strip(), email, phone, req.country_code.strip(), role))
+            user_id = cur.lastrowid
+        cur.execute("INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)", (user_id,))
+        cur.execute("INSERT OR IGNORE INTO trading_preferences (user_id) VALUES (?)", (user_id,))
+        cur.execute("INSERT OR IGNORE INTO risk_configurations (user_id) VALUES (?)", (user_id,))
         conn.commit()
-
-        email_sent = False
-        if channel == "email" or "@" in email:
-            email_sent = send_email_otp(email, code, full_name)
-
-        print("=" * 68)
-        print(f"[BALLY FLOW AUTH REGISTRATION] 6-Digit OTP for {email} ({country_code} {phone}):")
-        print(f">>>  {code}  <<<")
-        print(f"Target: {email} | Channel: {channel} | Email Sent: {email_sent} | Expires: 5 min")
-        print("=" * 68)
-
-        return {
-            "status": "SENT",
-            "message": f"Verification code dispatched to {email}",
-            "identifier": email,
-            "channel": channel,
-            "email_sent": email_sent,
-            "expires_in_seconds": 300,
-            "dev_code": code,
-        }
-    except Exception as exc:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=f"Database registration error: {exc}")
+        return _issue_otp(conn, user_id, email, phone, req.full_name.strip(), channel)
     finally:
         conn.close()
+
 
 @router.post("/login-initiate")
 def login_initiate(req: LoginInitiateRequest):
-    """
-    Seamless Sign-In endpoint: allows existing traders to request a 6-digit OTP
-    by entering just their email or registered phone number.
-    """
-    identifier = req.identifier.strip().lower()
-    channel = req.channel.strip().lower()
-
+    identifier = _normalise_identifier(req.identifier)
+    channel = _channel(req.channel)
     conn = get_db_connection()
-    cursor = conn.cursor()
-
     try:
-        cursor.execute("""
-            SELECT * FROM users 
-            WHERE email = ? OR phone = ? OR (country_code || phone) = ?
-            ORDER BY id DESC LIMIT 1
-        """, (identifier, identifier, identifier))
-        user = cursor.fetchone()
-
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE email = ? OR phone = ? OR (country_code || phone) = ? ORDER BY id DESC LIMIT 1", (identifier, identifier, identifier))
+        user = cur.fetchone()
         if not user:
-            # If not found but looks like email, register as trader automatically
-            if "@" in identifier:
-                cursor.execute("SELECT COUNT(*) AS total FROM users")
-                user_count = cursor.fetchone()["total"]
-                role = "admin" if user_count == 0 else "trader"
-                user_name = identifier.split("@")[0].capitalize()
-                cursor.execute("""
-                    INSERT INTO users (full_name, email, phone, country_code, role, status)
-                    VALUES (?, ?, '', '+255', ?, 'pending_verification')
-                """, (user_name, identifier, role))
-                user_id = cursor.lastrowid
-                user_name_to_use = user_name
-                user_email = identifier
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="No user found with this email or phone. Please create an account."
-                )
-        else:
-            user_id = user["id"]
-            user_name_to_use = user["full_name"]
-            user_email = user["email"]
-
-        code = f"{secrets.randbelow(900000) + 100000}"
-        expires_at = datetime.utcnow() + timedelta(minutes=5)
-
-        cursor.execute("""
-            UPDATE verification_codes 
-            SET is_used = 1 
-            WHERE identifier = ? AND is_used = 0
-        """, (user_email,))
-
-        cursor.execute("""
-            INSERT INTO verification_codes (user_id, identifier, channel, code, expires_at, attempts, is_used)
-            VALUES (?, ?, ?, ?, ?, 0, 0)
-        """, (user_id, user_email, channel, code, expires_at.strftime("%Y-%m-%d %H:%M:%S")))
-
-        conn.commit()
-
-        email_sent = send_email_otp(user_email, code, user_name_to_use)
-
-        print("=" * 68)
-        print(f"[BALLY FLOW SIGN-IN] 6-Digit OTP for {user_email}:")
-        print(f">>>  {code}  <<<")
-        print(f"Target: {user_email} | Channel: {channel} | Email Sent: {email_sent} | Expires: 5 min")
-        print("=" * 68)
-
-        return {
-            "status": "SENT",
-            "message": f"Verification code dispatched to {user_email}",
-            "identifier": user_email,
-            "channel": channel,
-            "email_sent": email_sent,
-            "expires_in_seconds": 300,
-            "dev_code": code,
-        }
+            raise HTTPException(status_code=404, detail="No user found with this email or phone. Please create an account.")
+        if user["status"] != "active":
+            raise HTTPException(status_code=403, detail="Account is not verified. Complete registration verification first.")
+        return _issue_otp(conn, user["id"], user["email"], user["phone"], user["full_name"], channel)
     finally:
         conn.close()
+
 
 @router.post("/verify-code")
 def verify_code(req: VerifyCodeRequest):
-    identifier = req.identifier.strip().lower()
+    identifier = _normalise_identifier(req.identifier)
     code = req.code.strip()
-
     conn = get_db_connection()
-    cursor = conn.cursor()
-
     try:
-        cursor.execute("""
-            SELECT * FROM verification_codes
-            WHERE identifier = ? AND is_used = 0
-            ORDER BY id DESC LIMIT 1
-        """, (identifier,))
-        otp_record = cursor.fetchone()
-
-        if not otp_record:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No pending verification code found. Please request a new code."
-            )
-
-        if otp_record["attempts"] >= 5:
-            cursor.execute("UPDATE verification_codes SET is_used = 1 WHERE id = ?", (otp_record["id"],))
-            conn.commit()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Maximum verification attempts exceeded. Please request a new code."
-            )
-
-        expires_at = datetime.strptime(otp_record["expires_at"], "%Y-%m-%d %H:%M:%S")
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM verification_codes WHERE destination = ? AND is_used = 0 ORDER BY id DESC LIMIT 1", (identifier,))
+        otp = cur.fetchone()
+        if not otp:
+            raise HTTPException(status_code=400, detail="No pending verification code found. Please request a new code.")
+        if otp["attempts"] >= OTP_MAX_ATTEMPTS:
+            cur.execute("UPDATE verification_codes SET is_used=1 WHERE id=?", (otp["id"],)); conn.commit()
+            raise HTTPException(status_code=400, detail="Maximum verification attempts exceeded. Please request a new code.")
+        expires_at = datetime.strptime(otp["expires_at"], "%Y-%m-%d %H:%M:%S")
         if datetime.utcnow() > expires_at:
-            cursor.execute("UPDATE verification_codes SET is_used = 1 WHERE id = ?", (otp_record["id"],))
-            conn.commit()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Verification code has expired. Please request a new one."
-            )
+            cur.execute("UPDATE verification_codes SET is_used=1 WHERE id=?", (otp["id"],)); conn.commit()
+            raise HTTPException(status_code=400, detail="Verification code has expired. Please request a new one.")
+        if not hmac.compare_digest(otp["code_hash"] or "", _otp_hash(code)):
+            cur.execute("UPDATE verification_codes SET attempts=attempts+1 WHERE id=?", (otp["id"],)); conn.commit()
+            raise HTTPException(status_code=400, detail="Invalid verification code. Please check and try again.")
 
-        if otp_record["code"] != code:
-            cursor.execute("""
-                UPDATE verification_codes SET attempts = attempts + 1 WHERE id = ?
-            """, (otp_record["id"],))
-            conn.commit()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid verification code. Please check and try again."
-            )
-
-        # Mark code used and activate trader
-        cursor.execute("UPDATE verification_codes SET is_used = 1 WHERE id = ?", (otp_record["id"],))
-        cursor.execute("""
-            UPDATE users SET status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = ?
-        """, (otp_record["user_id"],))
-
-        cursor.execute("SELECT * FROM users WHERE id = ?", (otp_record["user_id"],))
-        user = cursor.fetchone()
+        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        cur.execute("UPDATE verification_codes SET is_used=1, verified_at=? WHERE id=?", (now, otp["id"]))
+        if otp["channel"] == "email":
+            cur.execute("UPDATE users SET status='active', email_verified=1, updated_at=CURRENT_TIMESTAMP WHERE id=?", (otp["user_id"],))
+        else:
+            cur.execute("UPDATE users SET status='active', phone_verified=1, updated_at=CURRENT_TIMESTAMP WHERE id=?", (otp["user_id"],))
+        cur.execute("SELECT * FROM users WHERE id=?", (otp["user_id"],))
+        user = cur.fetchone()
         conn.commit()
-
-        # Phase 2: Create cryptographically signed JWT Session Token
-        user_id_str = str(user["id"])
-        access_token = create_access_token(
-            user_id=user_id_str,
-            email=user["email"],
-            role=user["role"]
-        )
-
-        return {
-            "status": "VERIFIED",
-            "message": "Account successfully verified.",
-            "token": access_token,
-            "token_type": "bearer",
-            "user": {
-                "id": user_id_str,
-                "full_name": user["full_name"],
-                "email": user["email"],
-                "phone": f"{user['country_code']} {user['phone']}".strip(),
-                "country_code": user["country_code"],
-                "role": user["role"],
-                "status": user["status"],
-                "token": access_token
-            }
-        }
+        token = create_access_token(str(user["id"]), user["email"], user["role"])
+        return {"status":"VERIFIED","message":"Account successfully verified.","token":token,"token_type":"bearer","user":{k:user[k] for k in ("id","full_name","email","phone","country_code","role","status","email_verified","phone_verified")}}
     finally:
         conn.close()
+
 
 @router.post("/resend-code")
 def resend_code(req: ResendCodeRequest):
-    identifier = req.identifier.strip().lower()
-    
+    identifier = _normalise_identifier(req.identifier)
+    channel = _channel(req.channel)
     conn = get_db_connection()
-    cursor = conn.cursor()
     try:
-        cursor.execute("SELECT * FROM users WHERE email = ? OR phone = ?", (identifier, identifier))
-        user = cursor.fetchone()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE email=? OR phone=? OR (country_code || phone)=? ORDER BY id DESC LIMIT 1", (identifier, identifier, identifier))
+        user = cur.fetchone()
         if not user:
             raise HTTPException(status_code=404, detail="User record not found.")
-
-        cursor.execute("""
-            SELECT created_at FROM verification_codes 
-            WHERE identifier = ? ORDER BY id DESC LIMIT 1
-        """, (identifier,))
-        last = cursor.fetchone()
+        cur.execute("SELECT created_at FROM verification_codes WHERE user_id=? ORDER BY id DESC LIMIT 1", (user["id"],))
+        last = cur.fetchone()
         if last:
             last_time = datetime.strptime(last["created_at"], "%Y-%m-%d %H:%M:%S")
-            if (datetime.utcnow() - last_time).total_seconds() < 30:
+            if (datetime.utcnow() - last_time).total_seconds() < OTP_RESEND_SECONDS:
                 raise HTTPException(status_code=429, detail="Please wait 30 seconds before requesting another code.")
-
-        code = f"{secrets.randbelow(900000) + 100000}"
-        expires_at = datetime.utcnow() + timedelta(minutes=5)
-
-        cursor.execute("UPDATE verification_codes SET is_used = 1 WHERE identifier = ?", (identifier,))
-        cursor.execute("""
-            INSERT INTO verification_codes (user_id, identifier, channel, code, expires_at, attempts, is_used)
-            VALUES (?, ?, ?, ?, ?, 0, 0)
-        """, (user["id"], identifier, req.channel, code, expires_at.strftime("%Y-%m-%d %H:%M:%S")))
-        conn.commit()
-
-        email_sent = send_email_otp(user["email"], code, user["full_name"])
-
-        print(f"[BALLY FLOW AUTH RESEND] New OTP for {identifier}: >>> {code} <<< (Email Sent: {email_sent})")
-
-        return {
-            "status": "RESENT",
-            "message": f"Fresh verification code dispatched to {identifier}",
-            "expires_in_seconds": 300,
-            "email_sent": email_sent,
-            "dev_code": code,
-        }
+        return _issue_otp(conn, user["id"], user["email"], user["phone"], user["full_name"], channel)
     finally:
         conn.close()
+
 
 @router.get("/me")
 def get_current_user_profile(user: Dict[str, Any] = Depends(get_current_user)):
-    """Phase 2: Protected endpoint that returns the caller's identity via JWT."""
     conn = get_db_connection()
-    cursor = conn.cursor()
     try:
-        cursor.execute("""
-            SELECT broker_server, broker_name, account_number, currency, leverage, is_demo
-            FROM broker_profiles 
-            WHERE user_id = ? AND is_active = 1
-            ORDER BY id DESC LIMIT 1
-        """, (int(user["id"]),))
-        broker = cursor.fetchone()
-        return {
-            "user": user,
-            "broker": dict(broker) if broker else None
-        }
+        cur = conn.cursor()
+        cur.execute("SELECT broker_server, broker_name, account_number, currency, leverage, is_demo FROM broker_profiles WHERE user_id=? AND is_active=1 ORDER BY id DESC LIMIT 1", (int(user["id"]),))
+        broker = cur.fetchone()
+        return {"user": user, "broker": dict(broker) if broker else None}
     finally:
         conn.close()
+
 
 @router.post("/broker-profile")
 def save_broker_profile(req: BrokerProfileRequest, user: Dict[str, Any] = Depends(get_current_user)):
-    """Phase 3: Persist MT5 Broker credentials scoped to this specific tenant."""
     conn = get_db_connection()
-    cursor = conn.cursor()
     try:
-        cursor.execute("""
-            UPDATE broker_profiles SET is_active = 0 WHERE user_id = ?
-        """, (int(user["id"]),))
-        
-        cursor.execute("""
-            INSERT INTO broker_profiles (user_id, broker_server, broker_name, account_number, password_encrypted, currency, leverage, is_demo, is_active)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
-        """, (
-            int(user["id"]),
-            req.broker_server.strip(),
-            req.broker_name.strip(),
-            req.account_number.strip(),
-            req.password.strip() if req.password else None,
-            req.currency.strip().upper(),
-            req.leverage,
-            1 if req.is_demo else 0
-        ))
+        cur = conn.cursor()
+        cur.execute("UPDATE broker_profiles SET is_active=0 WHERE user_id=?", (int(user["id"]),))
+        cur.execute("INSERT INTO broker_profiles (user_id,broker_server,broker_name,account_number,password_encrypted,currency,leverage,is_demo,is_active) VALUES (?,?,?,?,?,?,?,?,1)", (int(user["id"]), req.broker_server.strip(), req.broker_name.strip(), req.account_number.strip(), req.password.strip() if req.password else None, req.currency.strip().upper(), req.leverage, 1 if req.is_demo else 0))
         conn.commit()
-        return {
-            "status": "SAVED",
-            "message": "Broker profile successfully linked to trader account.",
-            "account_number": req.account_number.strip(),
-            "broker_server": req.broker_server.strip()
-        }
+        return {"status":"SAVED","message":"Broker profile successfully linked to trader account.","account_number":req.account_number.strip(),"broker_server":req.broker_server.strip()}
     finally:
         conn.close()
 
+
 @router.get("/admin/users")
 def get_all_users(admin: Dict[str, Any] = Depends(get_current_user_optional)):
-    """Admin-only overview of registered users and their status."""
+    if not admin or admin.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Administrator access required.")
     conn = get_db_connection()
-    cursor = conn.cursor()
     try:
-        cursor.execute("""
-            SELECT u.id, u.full_name, u.email, u.phone, u.country_code, u.role, u.status, u.created_at,
-                   (SELECT code FROM verification_codes WHERE user_id = u.id ORDER BY id DESC LIMIT 1) as last_code,
-                   (SELECT channel FROM verification_codes WHERE user_id = u.id ORDER BY id DESC LIMIT 1) as last_channel,
-                   (SELECT broker_server FROM broker_profiles WHERE user_id = u.id AND is_active = 1 ORDER BY id DESC LIMIT 1) as active_broker
-            FROM users u
-            ORDER BY u.id DESC
-        """)
-        rows = cursor.fetchall()
-        return {
-            "total_users": len(rows),
-            "users": [dict(r) for r in rows]
-        }
+        cur = conn.cursor()
+        cur.execute("SELECT id,full_name,email,phone,country_code,role,status,created_at FROM users ORDER BY id DESC")
+        rows = cur.fetchall()
+        return {"total_users": len(rows), "users": [dict(r) for r in rows]}
     finally:
         conn.close()
