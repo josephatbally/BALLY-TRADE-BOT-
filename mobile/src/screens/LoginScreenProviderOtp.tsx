@@ -60,12 +60,7 @@ export default function LoginScreenProviderOtp({navigation}: Props) {
         };
         await AsyncStorage.setItem('@bally_auth_token', res.token);
         await AsyncStorage.setItem('@bally_auth_user', JSON.stringify(user));
-        if (res.token) {
-        user.token = res.token;
-        await AsyncStorage.setItem('@bally_auth_token', res.token);
-        await AsyncStorage.setItem('@bally_auth_user', JSON.stringify(user));
-      }
-      navigation.replace('BrokerSetup', user);
+        navigation.replace('BrokerSetup', user);
         return;
       }
 
