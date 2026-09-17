@@ -1,9 +1,11 @@
 ﻿import Svg, { Defs, LinearGradient, Stop, Polygon, Polyline, Circle } from 'react-native-svg';
 import { getMarketQuotes, MarketQuote } from '../api/marketsApi';
 import { getHistorySummary, HistorySummaryResponse } from '../api/historyApi';
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Dimensions,
+  Image,
   Pressable,
   ScrollView,
   StatusBar,
@@ -173,6 +175,27 @@ export default function DashboardScreen({
 
   const [tradingMode, setTradingMode] =
     React.useState<TradingMode>('TECHNICAL');
+
+  const [profilePhoto, setProfilePhoto] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let active = true;
+    const loadPhoto = () => {
+      AsyncStorage.getItem('@bally_profile_photo')
+        .then(val => {
+          if (active && val) {
+            setProfilePhoto(val);
+          }
+        })
+        .catch(() => {});
+    };
+    loadPhoto();
+    const interval = setInterval(loadPhoto, 4000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   /*
    * ============================================================
@@ -611,14 +634,19 @@ export default function DashboardScreen({
           </View>
 
           <Pressable
+            onPress={() => (navigation as any).navigate('Profile')}
             style={styles.profileButton}
             accessibilityRole="button"
             accessibilityLabel="Open profile">
-            <Text style={styles.profileLetter}>
-              {user.firstName
-                .charAt(0)
-                .toUpperCase()}
-            </Text>
+            {profilePhoto ? (
+              <Image source={{ uri: profilePhoto }} style={styles.profileAvatarImage} />
+            ) : (
+              <Text style={styles.profileLetter}>
+                {user.firstName
+                  ? user.firstName.charAt(0).toUpperCase()
+                  : 'J'}
+              </Text>
+            )}
           </Pressable>
         </View>
 
@@ -1053,9 +1081,13 @@ export default function DashboardScreen({
         <View style={styles.brokerCard}>
           <View style={styles.brokerHeader}>
             <View style={styles.brokerAvatar}>
-              <Text style={styles.brokerAvatarText}>
-                {accountData?.broker?.company ? accountData.broker.company.substring(0, 2).toUpperCase() : 'MT'}
-              </Text>
+              {profilePhoto ? (
+                <Image source={{ uri: profilePhoto }} style={styles.brokerAvatarImage} />
+              ) : (
+                <Text style={styles.brokerAvatarText}>
+                  {accountData?.broker?.company ? accountData.broker.company.substring(0, 2).toUpperCase() : 'MT'}
+                </Text>
+              )}
             </View>
             <View style={styles.brokerMainInfo}>
               <Text style={styles.brokerName} numberOfLines={1}>
@@ -1311,6 +1343,7 @@ const styles = StyleSheet.create({
   },
 
   profileButton: {
+    overflow: "hidden",
     width: 46,
     height: 46,
     borderRadius: 23,
@@ -1950,6 +1983,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   brokerAvatar: {
+    overflow: "hidden",
     width: 44,
     height: 44,
     borderRadius: 10,
@@ -1957,6 +1991,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
+  },
+  profileAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 23,
+  },
+  brokerAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 22,
   },
   brokerAvatarText: {
     color: '#FFFFFF',
