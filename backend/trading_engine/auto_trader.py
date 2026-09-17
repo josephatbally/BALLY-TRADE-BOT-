@@ -1,3 +1,4 @@
+from backend.trading_engine.ai.ai_engine import ai_engine
 """
 BALLY FLOW - High-Speed Intelligent Auto-Trading Engine
 Parallel Async Market Scanner, Conviction-Weighted Dynamic Sizing,
@@ -177,9 +178,11 @@ class AutoTrader:
                 continue
             if profit >= self.take_profit_dollars:
                 self._add_log("SUCCESS", f"Profit Target Hit: {symbol} (#{ticket}) +${profit:.2f}")
+                ai_engine.record_trade_outcome(symbol=symbol, timeframe="M15", signal="BUY", outcome="WIN", entry_price=0.0, exit_price=0.0, pnl=profit, quality=85.0)
                 close_position(ticket)
             elif profit <= self.stop_loss_dollars:
                 self._add_log("WARNING", f"Risk Stop Hit: {symbol} (#{ticket}) -${abs(profit):.2f}")
+                ai_engine.record_trade_outcome(symbol=symbol, timeframe="M15", signal="BUY", outcome="LOSS", entry_price=0.0, exit_price=0.0, pnl=profit, quality=40.0)
                 close_position(ticket)
 
     async def _evaluate_and_execute_symbol(
@@ -200,7 +203,18 @@ class AutoTrader:
             action = decision_val.get("action", "NO_TRADE") if isinstance(decision_val, dict) else str(decision_val).upper()
             confidence_val = analysis.get("confidence", 0.0) if isinstance(analysis, dict) else 0.0
             confidence = confidence_val.get("score", 0.0) if isinstance(confidence_val, dict) else float(confidence_val or 0.0)
-            self.last_analysis_summary[symbol] = {"action": action, "confidence": confidence}
+            
+            # AI Continuous Market Learning & Structural Adaptation
+            ai_study = ai_engine.study_market(symbol=symbol, timeframe="M15", candles=[], technical_analysis=analysis if isinstance(analysis, dict) else {})
+            multiplier = ai_study.get("multiplier", 1.0)
+            adjusted_confidence = min(99.0, confidence * multiplier)
+            confidence = adjusted_confidence
+            self.last_analysis_summary[symbol] = {
+                "action": action,
+                "confidence": confidence,
+                "regime": ai_study.get("regime", "BALANCED_RANGE"),
+                "ai_samples": ai_study.get("samples_learned", 0),
+            }
 
             if action not in ["BUY", "SELL"] or confidence < self.min_confidence:
                 return False

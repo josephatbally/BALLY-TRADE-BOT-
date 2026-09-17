@@ -1,10 +1,11 @@
+from __future__ import annotations
+from backend.trading_engine.ai.ai_engine import ai_engine
 """
 BALLY FLOW API
 
 HTTP API layer for the BALLY FLOW mobile application.
 """
 
-from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
@@ -72,3 +73,8 @@ def root():
         "version": APP_VERSION,
         "status": "ONLINE",
     }
+
+@app.get("/api/v1/ai/telemetry", tags=["AI"])
+def get_ai_learning_telemetry():
+    """Returns continuous multi-pair AI learning memory, win rates, and structural regimes."""
+    return ai_engine.get_learning_telemetry()

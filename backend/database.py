@@ -98,6 +98,42 @@ def init_db():
     );
     """)
 
+    
+    # 5. Persistent AI Pattern & Structural Memory Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS ai_pattern_knowledge (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT NOT NULL,
+        timeframe TEXT NOT NULL,
+        regime TEXT NOT NULL,
+        signature_hash TEXT NOT NULL,
+        setup_type TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        win_count INTEGER DEFAULT 0,
+        loss_count INTEGER DEFAULT 0,
+        total_pnl REAL DEFAULT 0.0,
+        avg_confidence REAL DEFAULT 0.0,
+        last_observed TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+
+    # 6. Persistent AI Continuous Symbol Learning Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS ai_symbol_learning (
+        symbol TEXT PRIMARY KEY,
+        total_scans INTEGER DEFAULT 0,
+        total_trades INTEGER DEFAULT 0,
+        wins INTEGER DEFAULT 0,
+        losses INTEGER DEFAULT 0,
+        win_rate REAL DEFAULT 0.0,
+        market_regime TEXT DEFAULT 'UNKNOWN',
+        volatility_score REAL DEFAULT 0.0,
+        trend_strength REAL DEFAULT 0.0,
+        adaptive_multiplier REAL DEFAULT 1.0,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+
     conn.commit()
     conn.close()
 

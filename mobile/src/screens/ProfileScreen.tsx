@@ -1,3 +1,4 @@
+import { loadUserProfilePhoto, saveUserProfilePhoto, clearUserProfilePhoto } from '../utils/userPhoto';
 ﻿import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -122,14 +123,12 @@ export default function ProfileScreen({
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
 
   useEffect(() => {
-    AsyncStorage.getItem('@bally_profile_photo')
+    loadUserProfilePhoto(user)
       .then(stored => {
-        if (stored) {
-          setAvatarUri(stored);
-        }
+        setAvatarUri(stored);
       })
       .catch(() => {});
-  }, []);
+  }, [user]);
 
   const handlePickPhoto = async () => {
     try {
@@ -151,7 +150,7 @@ export default function ProfileScreen({
       const asset = response.assets?.[0];
       if (asset?.uri) {
         setAvatarUri(asset.uri);
-        await AsyncStorage.setItem('@bally_profile_photo', asset.uri);
+        await saveUserProfilePhoto(asset.uri, user);
       }
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'Failed to select photo');
@@ -237,6 +236,8 @@ export default function ProfileScreen({
               await AsyncStorage.removeItem('@bally_auth_user');
               await AsyncStorage.removeItem('@bally_auth_token');
               await AsyncStorage.removeItem('@bally_broker_credentials');
+              await AsyncStorage.removeItem('@bally_profile_photo');
+              setAvatarUri(null);
             } catch {
               // ignore
             }

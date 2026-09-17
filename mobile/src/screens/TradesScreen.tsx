@@ -1,3 +1,4 @@
+import { loadUserProfilePhoto } from '../utils/userPhoto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
@@ -37,9 +38,9 @@ export default function TradesScreen() {
   useEffect(() => {
     let active = true;
     const loadPhoto = () => {
-      AsyncStorage.getItem('@bally_profile_photo')
+      loadUserProfilePhoto()
         .then(photo => {
-          if (active && photo) setAvatarUri(photo);
+          if (active) setAvatarUri(photo);
         })
         .catch(() => {});
     };

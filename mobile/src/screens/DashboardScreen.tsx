@@ -1,3 +1,4 @@
+import { loadUserProfilePhoto } from '../utils/userPhoto';
 import BrokerLogo from '../components/broker/BrokerLogo';
 import PairLogo from '../components/broker/PairLogo';
 ﻿import Svg, { Defs, LinearGradient, Stop, Polygon, Polyline, Circle } from 'react-native-svg';
@@ -183,9 +184,9 @@ export default function DashboardScreen({
   React.useEffect(() => {
     let active = true;
     const loadPhoto = () => {
-      AsyncStorage.getItem('@bally_profile_photo')
+      loadUserProfilePhoto(user)
         .then(val => {
-          if (active && val) {
+          if (active) {
             setProfilePhoto(val);
           }
         })

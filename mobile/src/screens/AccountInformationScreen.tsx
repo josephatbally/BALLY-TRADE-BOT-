@@ -1,3 +1,4 @@
+import { loadUserProfilePhoto } from '../utils/userPhoto';
 import BrokerLogo from '../components/broker/BrokerLogo';
 import React, { useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -50,16 +51,16 @@ function SectionHeader({ title }: { title: string }) {
 
 export default function AccountInformationScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
+  const user = route.params;
   const [photoUri, setPhotoUri] = useState<string | null>(null);
 
   useEffect(() => {
-    AsyncStorage.getItem('@bally_profile_photo')
+    loadUserProfilePhoto(user)
       .then((saved) => {
-        if (saved) setPhotoUri(saved);
+        setPhotoUri(saved);
       })
       .catch(() => {});
-  }, []);
-  const user = route.params;
+  }, [user]);
 
   const firstName = user.firstName?.trim() || "Trader";
   const displayName = user.displayName?.trim() || firstName;
