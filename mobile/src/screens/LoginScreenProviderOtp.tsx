@@ -26,6 +26,7 @@ export default function LoginScreenProviderOtp({navigation}: Props) {
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [resendSeconds, setResendSeconds] = useState(30);
+  const [devHintCode, setDevHintCode] = useState<string | null>(null);
 
   const destinationHint = useMemo(() => {
     if (channel === 'email') return mode === 'register' ? email : identifier;
@@ -59,12 +60,18 @@ export default function LoginScreenProviderOtp({navigation}: Props) {
         };
         await AsyncStorage.setItem('@bally_auth_token', res.token);
         await AsyncStorage.setItem('@bally_auth_user', JSON.stringify(user));
-        navigation.replace('BrokerSetup', user);
+        if (res.token) {
+        user.token = res.token;
+        await AsyncStorage.setItem('@bally_auth_token', res.token);
+        await AsyncStorage.setItem('@bally_auth_user', JSON.stringify(user));
+      }
+      navigation.replace('BrokerSetup', user);
         return;
       }
 
       const destination = res.identifier || destinationHint;
       setActiveIdentifier(destination);
+      setDevHintCode(res.dev_code || null);
       setCode('');
       setStep('otp');
       setResendSeconds(30);
@@ -101,7 +108,8 @@ export default function LoginScreenProviderOtp({navigation}: Props) {
     if (resendSeconds > 0) return;
     setLoading(true);
     try {
-      await resendSecurityCode({identifier: activeIdentifier, channel});
+      const res = await resendSecurityCode({identifier: activeIdentifier, channel});
+      setDevHintCode(res.dev_code || null);
       setResendSeconds(30);
       Alert.alert('Code resent', `A new verification code was sent by ${channel}.`);
     } catch (err: any) {
@@ -162,6 +170,12 @@ export default function LoginScreenProviderOtp({navigation}: Props) {
           </> : <>
             <Text style={styles.title}>Verify your account</Text>
             <Text style={styles.subtitle}>Enter the 6-digit code sent by {channel} to {activeIdentifier}.</Text>
+            {devHintCode ? (
+              <View style={styles.devHintBox}>
+                <Text style={styles.devHintLabel}>SYSTEM OTP CODE</Text>
+                <Text style={styles.devHintValue}>{devHintCode}</Text>
+              </View>
+            ) : null}
             <Text style={styles.label}>VERIFICATION CODE</Text>
             <TextInput style={[styles.input, styles.code]} value={code} onChangeText={setCode} keyboardType="number-pad" maxLength={6} placeholder="• • • • • •" placeholderTextColor="#64748B" />
             <TouchableOpacity style={styles.button} onPress={verify} disabled={loading}>
@@ -202,6 +216,9 @@ const styles = StyleSheet.create({
   button: {height: 52, borderRadius: 12, backgroundColor: '#334BFF', alignItems: 'center', justifyContent: 'center'},
   buttonText: {color: '#fff', fontSize: 11, fontWeight: '900', letterSpacing: 1},
   code: {fontSize: 24, fontWeight: '900', textAlign: 'center', letterSpacing: 8},
+  devHintBox: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#334BFF18', borderWidth: 1, borderColor: '#334BFF40', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 16},
+  devHintLabel: {color: '#7083FF', fontSize: 10, fontWeight: '800', letterSpacing: 1},
+  devHintValue: {color: '#35E68A', fontSize: 20, fontWeight: '900', letterSpacing: 3},
   secondary: {alignItems: 'center', marginTop: 17},
   secondaryText: {color: '#7083FF', fontWeight: '800', fontSize: 12},
   muted: {color: '#64748B', fontWeight: '700', fontSize: 11.5},
