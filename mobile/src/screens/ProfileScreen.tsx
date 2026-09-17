@@ -137,7 +137,7 @@ export default function ProfileScreen({
         mediaType: 'photo',
         maxWidth: 600,
         maxHeight: 600,
-        quality: 0.85,
+        quality: 0.8,
         selectionLimit: 1,
       });
 
