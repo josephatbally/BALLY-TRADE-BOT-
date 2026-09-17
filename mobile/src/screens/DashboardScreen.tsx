@@ -1,3 +1,4 @@
+import BrokerLogo from '../components/broker/BrokerLogo';
 ﻿import Svg, { Defs, LinearGradient, Stop, Polygon, Polyline, Circle } from 'react-native-svg';
 import { getMarketQuotes, MarketQuote } from '../api/marketsApi';
 import { getHistorySummary, HistorySummaryResponse } from '../api/historyApi';
@@ -1080,15 +1081,12 @@ export default function DashboardScreen({
 
         <View style={styles.brokerCard}>
           <View style={styles.brokerHeader}>
-            <View style={styles.brokerAvatar}>
-              {profilePhoto ? (
-                <Image source={{ uri: profilePhoto }} style={styles.brokerAvatarImage} />
-              ) : (
-                <Text style={styles.brokerAvatarText}>
-                  {accountData?.broker?.company ? accountData.broker.company.substring(0, 2).toUpperCase() : 'MT'}
-                </Text>
-              )}
-            </View>
+            <BrokerLogo
+              company={accountData?.broker?.company}
+              server={accountData?.broker?.server}
+              size={46}
+              style={{ marginRight: 12 }}
+            />
             <View style={styles.brokerMainInfo}>
               <Text style={styles.brokerName} numberOfLines={1}>
                 {accountData?.broker?.company || 'MetaQuotes / MT5 Terminal'}
