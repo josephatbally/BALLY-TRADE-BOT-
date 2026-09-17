@@ -17,25 +17,28 @@ from backend.security.jwt_auth import get_current_user
 
 
 class DB3AuthenticatedAPIIntegrationTest(unittest.TestCase):
-    DB_URI = "file:db3_api_integration_test?mode=memory&cache=shared"
-
     def setUp(self) -> None:
-        self.anchor = sqlite3.connect(self.DB_URI, uri=True)
+        # Use a unique shared-memory database per test. The anchor connection
+        # keeps that database alive while production-style connections are
+        # opened and closed by the patched get_db_connection functions.
+        self.db_uri = f"file:db3_api_integration_test_{id(self)}?mode=memory&cache=shared"
+        self.anchor = sqlite3.connect(self.db_uri, uri=True)
         self.anchor.row_factory = sqlite3.Row
         self._create_schema()
         self._seed_users()
         self.current_user = {"id": 1, "email": "user-a@ballyflow.test", "role": "trader", "status": "active"}
 
         def connection() -> sqlite3.Connection:
-            conn = sqlite3.connect(self.DB_URI, uri=True)
+            conn = sqlite3.connect(self.db_uri, uri=True)
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA foreign_keys = ON")
             return conn
 
         self.connection = connection
         app.dependency_overrides[get_current_user] = lambda: self.current_user
+        # trading_accounts routes use the persistence module's database
+        # helper; auth routes use their own imported helper.
         self.patches = [
-            patch("backend.api.routes.trading_accounts.get_db_connection", side_effect=connection),
             patch("backend.trading_engine.trading_account_persistence.get_db_connection", side_effect=connection),
             patch("backend.api.routes.auth.get_db_connection", side_effect=connection),
         ]
