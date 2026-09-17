@@ -13,8 +13,21 @@ import os
 from typing import Optional, Dict, Any
 from fastapi import Request, HTTPException, status, Depends
 from backend.database import get_db_connection
+from backend.config.env import load_local_env
 
-JWT_SECRET = os.getenv("JWT_SECRET", "bally_flow_institutional_super_secret_jwt_key_2026")
+load_local_env()
+
+
+def _required_jwt_secret() -> str:
+    secret = os.getenv("JWT_SECRET", "").strip()
+    if len(secret) < 32:
+        raise RuntimeError(
+            "JWT_SECRET is missing or too short. Configure a random secret of at least 32 characters."
+        )
+    return secret
+
+
+JWT_SECRET = _required_jwt_secret()
 JWT_ALGORITHM = "HS256"
 DEFAULT_EXPIRY_SECONDS = 30 * 24 * 60 * 60  # 30 days session persistence
 
