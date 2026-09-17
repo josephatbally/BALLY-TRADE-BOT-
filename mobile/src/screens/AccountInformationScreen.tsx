@@ -1,5 +1,7 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
+  Image,
   Pressable,
   ScrollView,
   StatusBar,
@@ -47,6 +49,15 @@ function SectionHeader({ title }: { title: string }) {
 
 export default function AccountInformationScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
+
+  useEffect(() => {
+    AsyncStorage.getItem('@bally_profile_photo')
+      .then((saved) => {
+        if (saved) setPhotoUri(saved);
+      })
+      .catch(() => {});
+  }, []);
   const user = route.params;
 
   const firstName = user.firstName?.trim() || "Trader";
@@ -101,9 +112,13 @@ export default function AccountInformationScreen({ navigation, route }: Props) {
         {/* AVATAR HERO CARD */}
         <View style={styles.heroCard}>
           <View style={styles.avatarWrap}>
-            <Text style={styles.avatarLetter} allowFontScaling={false}>
-              {profileLetter}
-            </Text>
+            {photoUri ? (
+              <Image source={{ uri: photoUri }} style={styles.avatarImage} />
+            ) : (
+              <Text style={styles.avatarLetter} allowFontScaling={false}>
+                {profileLetter}
+              </Text>
+            )}
           </View>
 
           <Text style={styles.heroName} allowFontScaling={false}>
@@ -265,15 +280,21 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   avatarWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     backgroundColor: "#7083FF20",
     borderWidth: 1.5,
     borderColor: "#7083FF",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 12,
+    overflow: "hidden",
+  },
+  avatarImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 34,
   },
   avatarLetter: {
     color: "#7083FF",
