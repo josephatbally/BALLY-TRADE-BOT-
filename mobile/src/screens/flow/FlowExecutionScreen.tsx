@@ -100,7 +100,7 @@ export default function FlowExecutionScreen({
       number: '03',
       title: 'EXECUTION CHECKS',
       description: 'Broker checks remain backend-authoritative and are not assumed from the mobile screen.',
-      status: 'READY',
+      status: 'STANDBY',
     },
     {
       number: '04',
