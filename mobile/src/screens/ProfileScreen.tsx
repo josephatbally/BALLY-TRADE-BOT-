@@ -1,4 +1,4 @@
-﻿import React from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import {
   Alert,
   Pressable,
@@ -8,6 +8,7 @@ import {
   Switch,
   Text,
   View,
+  Image,
 } from 'react-native';
 import {BottomTabScreenProps} from '@react-navigation/bottom-tabs';
 import {CompositeScreenProps} from '@react-navigation/native';
@@ -16,6 +17,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {RootStackParamList} from '../navigation/navigationTypes';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {MainTabParamList} from '../navigation/MainTabNavigator';
+import {launchImageLibrary} from 'react-native-image-picker';
 
 import {BRANDING} from '../config/branding';
 
@@ -116,6 +118,45 @@ export default function ProfileScreen({
    */
   const [botEnabled, setBotEnabled] =
     React.useState(false);
+
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+
+  useEffect(() => {
+    AsyncStorage.getItem('@bally_profile_photo')
+      .then(stored => {
+        if (stored) {
+          setAvatarUri(stored);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handlePickPhoto = async () => {
+    try {
+      const response = await launchImageLibrary({
+        mediaType: 'photo',
+        maxWidth: 600,
+        maxHeight: 600,
+        quality: 0.85,
+        selectionLimit: 1,
+      });
+
+      if (response.didCancel) {
+        return;
+      }
+      if (response.errorCode) {
+        Alert.alert('Photo Selection', response.errorMessage || 'Unable to open photos.');
+        return;
+      }
+      const asset = response.assets?.[0];
+      if (asset?.uri) {
+        setAvatarUri(asset.uri);
+        await AsyncStorage.setItem('@bally_profile_photo', asset.uri);
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Failed to select photo');
+    }
+  };
 
   const [biometricEnabled, setBiometricEnabled] =
     React.useState(false);
@@ -279,11 +320,25 @@ export default function ProfileScreen({
         {/* =============================================== */}
 
         <View style={styles.profileCard}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {profileLetter}
-            </Text>
-          </View>
+          <Pressable
+            onPress={handlePickPhoto}
+            style={({pressed}) => [
+              styles.avatarWrapper,
+              pressed && styles.avatarPressed,
+            ]}>
+            <View style={styles.avatar}>
+              {avatarUri ? (
+                <Image source={{uri: avatarUri}} style={styles.avatarImage} />
+              ) : (
+                <Text style={styles.avatarText}>
+                  {profileLetter}
+                </Text>
+              )}
+            </View>
+            <View style={styles.avatarCameraBadge}>
+              <Text style={styles.avatarCameraBadgeText}>📷</Text>
+            </View>
+          </Pressable>
 
           <View style={styles.profileInfo}>
             <Text style={styles.profileName}>
@@ -820,6 +875,40 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 27,
+  },
+
+  avatarWrapper: {
+    position: 'relative',
+    marginRight: 15,
+  },
+
+  avatarPressed: {
+    opacity: 0.8,
+    transform: [{scale: 0.97}],
+  },
+
+  avatarImage: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+  },
+
+  avatarCameraBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#334BFF',
+    borderWidth: 1.5,
+    borderColor: '#0A0E18',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  avatarCameraBadgeText: {
+    fontSize: 11,
   },
 
   avatar: {
