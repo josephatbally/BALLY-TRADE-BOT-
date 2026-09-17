@@ -128,6 +128,30 @@ def _persist_execution_lifecycle(*, user_id: int, requested_lot_size: float, req
                 take_profit=approved_order.get("take_profit", take_profit), status="OPEN",
                 metadata={"source": "api.orders.execute"}, conn=conn,
             )
+
+            # DB-2 persistence records the execution history, while DB-3's
+            # user_orders table is the ownership index used by authenticated
+            # position filtering and close authorization. Keep the two in sync
+            # for a successfully opened MT5 position.
+            ownership_ticket = position_ticket or order_ticket
+            if ownership_ticket:
+                ownership_ok = tenant_router.record_user_order(
+                    user_id=user_id,
+                    ticket=int(ownership_ticket),
+                    symbol=symbol,
+                    action=decision,
+                    lot_size=float(execution_volume),
+                    status="SUBMITTED",
+                    magic_number=int(approved_order.get("magic_number") or 20260817),
+                )
+                if not ownership_ok:
+                    logger.error(
+                        "MT5 trade executed but tenant ownership could not be recorded: user_id=%s ticket=%s",
+                        user_id,
+                        ownership_ticket,
+                    )
+                    raise RuntimeError("Executed trade ownership could not be recorded.")
+
         conn.commit()
         return {"trade_plan_id": plan_id, "order_id": order_id, "execution_id": execution_row.get("id"),
                 "trade_record_id": trade_row.get("id") if trade_row else None,
@@ -186,7 +210,7 @@ def execute_order(request: ExecuteOrderRequest, current_user: Dict[str, Any] = D
         return {"status": "BLOCKED", "order_sent": False, "reason": f"Requested {action} does not match the authoritative Decision Engine signal {decision}.", "decision": decision, "requested_action": action, "tenant_id": user_id, "trading_account_id": resolved["configured_account"]["id"]}
 
     trade_plan = application._build_upstream_trade_plan(market=symbol, decision=decision, analysis=analysis)
-    pipeline_result = execute_pipeline(trade_plan=trade_plan, risk_context=application._get_risk_context(), execute_live=False)
+    pipeline_result = execute_pipeline(trade_plan=trade_plan, risk_context=application._get_risk_context(), execute_live=True)
     persistence = _persist_execution_lifecycle(user_id=user_id, requested_lot_size=float(request.lot_size), requested_comment=request.comment, trade_plan=trade_plan, execution=pipeline_result)
     executor = pipeline_result.get("executor")
     live_result = executor.get("executor_result", {}) if isinstance(executor, dict) else {}
