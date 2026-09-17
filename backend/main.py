@@ -290,10 +290,7 @@ class BallyFlowApplication:
     # -----------------------------------------------------------------
 
     def status(self) -> Dict[str, Any]:
-        """
-        Return application status.
-        """
-
+        """Return one consistent application status payload."""
         return {
             "status": "READY" if self._running else "STOPPED",
             "application": APP_NAME,
@@ -304,14 +301,6 @@ class BallyFlowApplication:
             "technical_enabled": self.is_technical(),
             "hybrid_enabled": self.is_hybrid(),
             "scanner": scanner_info(),
-        }
-    def status(self) -> Dict[str, Any]:
-        return {
-            "application": APP_NAME,
-            "version": APP_VERSION,
-            "running": self.running,
-            "mode": self.mode.value,
-            "auto_trading_enabled": self._auto_trading_enabled,  # Add this line
             "mt5": mt5_status(),
         }
 
