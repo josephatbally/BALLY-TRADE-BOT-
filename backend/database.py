@@ -68,11 +68,12 @@ def init_db() -> None:
     """Initialize the DB-1 foundation and apply newer migrations safely.
 
     DB-1 remains the base schema. Higher schema versions are never overwritten
-    by this initializer. If the database is below DB-2, the DB-2 migration is
-    invoked after the DB-1 connection is closed, avoiding a circular import and
-    keeping normal application startup migration-safe.
+    by this initializer. If the database is below DB-2 or DB-3, the matching
+    migration is invoked after the DB-1 connection is closed, avoiding circular
+    imports and keeping normal application startup migration-safe.
     """
     needs_db2_migration = False
+    needs_db3_migration = False
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -276,6 +277,7 @@ def init_db() -> None:
         ).fetchone()
         current_version = int(current_version_row[0]) if current_version_row else DB_SCHEMA_VERSION
         needs_db2_migration = current_version < 2
+        needs_db3_migration = current_version < 3
 
         conn.commit()
     except Exception:
@@ -288,6 +290,11 @@ def init_db() -> None:
         from backend.db2_migration import migrate_db2
 
         migrate_db2()
+
+    if needs_db3_migration:
+        from backend.db3_migration import migrate_db3
+
+        migrate_db3()
 
 
 init_db()
