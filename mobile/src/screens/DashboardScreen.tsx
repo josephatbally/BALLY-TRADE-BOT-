@@ -26,7 +26,6 @@ import {
   getApplicationStatus,
   getHealth,
   updateApplicationMode,
-  getBotTelemetry,
   toggleBotAutoTrade,
 } from '../api/appApi';
 import {AccountResponse} from '../api/accountApi';
