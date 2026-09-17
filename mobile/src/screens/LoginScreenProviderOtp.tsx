@@ -1,4 +1,5 @@
 import React, {useMemo, useState} from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {initiateLogin, initiateRegistration, resendSecurityCode, verifySecurityCode} from '../api/authApi';
@@ -45,6 +46,22 @@ export default function LoginScreenProviderOtp({navigation}: Props) {
       const res = mode === 'register'
         ? await initiateRegistration({full_name: name.trim(), email: email.trim().toLowerCase(), phone: phone.trim(), country_code: '+255', channel})
         : await initiateLogin({identifier: identifier.trim(), channel});
+
+      if (res.verification_required === false && res.token && res.user) {
+        const user: AuthenticatedUser = {
+          id: String(res.user.id),
+          email: res.user.email,
+          firstName: (res.user.full_name || 'Trader').split(' ')[0],
+          displayName: res.user.full_name,
+          phone: res.user.phone,
+          countryCode: res.user.country_code,
+          token: res.token,
+        };
+        await AsyncStorage.setItem('@bally_auth_token', res.token);
+        await AsyncStorage.setItem('@bally_auth_user', JSON.stringify(user));
+        navigation.replace('BrokerSetup', user);
+        return;
+      }
 
       const destination = res.identifier || destinationHint;
       setActiveIdentifier(destination);
