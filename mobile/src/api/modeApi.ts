@@ -1,4 +1,4 @@
-import { API_BASE_URL, getAuthHeaders } from './config';
+import { apiRequest } from './client';
 
 export type OperatingMode = 'Technical' | 'Hybrid';
 
@@ -11,15 +11,7 @@ export interface ModeStatusResponse {
 
 export async function fetchTradingMode(): Promise<OperatingMode> {
   try {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/api/v1/mode`, {
-      method: 'GET',
-      headers,
-    });
-    if (!response.ok) {
-      return 'Technical';
-    }
-    const data: ModeStatusResponse = await response.json();
+    const data = await apiRequest<ModeStatusResponse>('/api/v1/mode');
     return data.mode?.toLowerCase() === 'hybrid' ? 'Hybrid' : 'Technical';
   } catch (error) {
     console.warn('[modeApi] Failed to fetch mode from backend:', error);
@@ -29,16 +21,11 @@ export async function fetchTradingMode(): Promise<OperatingMode> {
 
 export async function updateTradingMode(mode: OperatingMode): Promise<boolean> {
   try {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/api/v1/mode`, {
+    await apiRequest<ModeStatusResponse>('/api/v1/mode', {
       method: 'PUT',
-      headers: {
-        ...headers,
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify({ mode: mode.toLowerCase() }),
     });
-    return response.ok;
+    return true;
   } catch (error) {
     console.warn('[modeApi] Failed to update mode on backend:', error);
     return false;
