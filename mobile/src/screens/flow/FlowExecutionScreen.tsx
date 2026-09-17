@@ -81,42 +81,42 @@ export default function FlowExecutionScreen({
   }, [fetchQuote]);
 
   const isExecutable = decision === 'BUY' || decision === 'SELL';
-  const executionStatus: ExecutionStatus = isExecutable ? 'READY' : 'STANDBY';
+  const executionStatus: ExecutionStatus = isExecutable ? 'STANDBY' : 'STANDBY';
 
   const executionSteps = [
     {
       number: '01',
       title: 'VALIDATION RECEIVED',
       description: 'Risk management and lot allocation verified by backend.',
-      status: 'READY',
+      status: 'STANDBY',
     },
     {
       number: '02',
       title: 'MT5 CONNECTION',
-      description: 'MetaTrader 5 live terminal bridge online and responsive.',
-      status: 'READY',
+      description: 'MT5 connectivity is verified by backend account endpoints; this screen does not infer execution readiness.',
+      status: 'STANDBY',
     },
     {
       number: '03',
       title: 'EXECUTION CHECKS',
-      description: 'Symbol spread, tick latency and broker trading rules cleared.',
+      description: 'Broker checks remain backend-authoritative and are not assumed from the mobile screen.',
       status: 'READY',
     },
     {
       number: '04',
       title: 'ORDER PIPELINE',
       description: isExecutable
-        ? `Armed for ${decision} dispatch with 0.01 lot size.`
+        ? `Qualified direction ${decision} received. Awaiting backend execution state.`
         : 'Standby: awaiting qualified directional decision.',
-      status: isExecutable ? 'READY' : 'STANDBY',
+      status: 'STANDBY',
     },
     {
       number: '05',
       title: 'MT5 RESULT',
       description: isExecutable
-        ? `Pending trigger @ ${quote?.price ?? 'market price'}.`
+        ? `Live quote ${quote?.price ?? 'unavailable'}. No execution result has been returned to this screen.`
         : 'Execution gate closed in non-directional mode.',
-      status: isExecutable ? 'READY' : 'STANDBY',
+      status: 'STANDBY',
     },
   ];
 
@@ -231,8 +231,8 @@ export default function FlowExecutionScreen({
 
           <Text style={styles.executionDescription}>
             {isExecutable
-              ? `Terminal armed. The backend execution engine is authorized to dispatch ${decision} orders for ${symbol}.`
-              : 'Standby mode: execution gate is safely held until high-confluence directional decision is qualified.'}
+              ? `Backend decision is ${decision}. This screen displays live context only; execution state must come from the backend.`
+              : 'Standby mode: execution gate is safely held until a qualified directional decision is available.'}
           </Text>
         </View>
 
@@ -303,7 +303,7 @@ export default function FlowExecutionScreen({
               Terminal execution environment
             </Text>
           </View>
-          <Text style={styles.sectionCount}>LIVE</Text>
+          <Text style={styles.sectionCount}>BACKEND</Text>
         </View>
 
         <View style={styles.connectionCard}>
@@ -315,13 +315,13 @@ export default function FlowExecutionScreen({
             <View style={styles.connectionContent}>
               <Text style={styles.connectionTitle}>METATRADER 5</Text>
               <Text style={styles.connectionDescription}>
-                Bridge active • Latency optimal
+                Connectivity is reported by backend
               </Text>
             </View>
 
             <View style={styles.connectionStatus}>
               <View style={styles.connectionStatusDot} />
-              <Text style={styles.connectionStatusText}>ONLINE</Text>
+              <Text style={styles.connectionStatusText}>BACKEND</Text>
             </View>
           </View>
         </View>
@@ -372,7 +372,7 @@ export default function FlowExecutionScreen({
           <View style={styles.orderRow}>
             <Text style={styles.orderLabel}>GATE STATUS</Text>
             <Text style={[styles.orderValue, {color: isExecutable ? '#35E68A' : '#7083FF'}]}>
-              {isExecutable ? 'ARMED' : 'STANDBY'}
+              {isExecutable ? 'BACKEND-CHECKED' : 'STANDBY'}
             </Text>
           </View>
         </View>
