@@ -245,6 +245,11 @@ export default function DashboardScreen({
 
   const [debugError, setDebugError] = React.useState<string | null>(null);
 
+  /*
+   * Prevent state updates after the screen has unmounted.
+   */
+  const mountedRef = React.useRef(true);
+
   const toggleBotAutoTradeBackend = async (enabled: boolean): Promise<void> => {
     try {
       const response = await toggleBotAutoTrade(enabled);
@@ -257,10 +262,6 @@ export default function DashboardScreen({
       }
     }
   };
-  /*
-   * Prevent state updates after the screen has unmounted.
-   */
-  const mountedRef = React.useRef(true);
 
   /*
    * ============================================================
