@@ -20,7 +20,7 @@ from backend.security.jwt_auth import get_current_user
 class DB3Step6APIIntegrationTest(unittest.TestCase):
     def setUp(self) -> None:
         self.db_uri = f"file:db3_step6_api_{id(self)}?mode=memory&cache=shared"
-        self.anchor = sqlite3.connect(self.db_uri, uri=True)
+        self.anchor = sqlite3.connect(self.db_uri, uri=True, check_same_thread=False)
         self.anchor.row_factory = sqlite3.Row
         self._create_schema()
         self._seed_users()
@@ -40,6 +40,10 @@ class DB3Step6APIIntegrationTest(unittest.TestCase):
         self._start_patch(
             "backend.api.routes.account.resolve_authenticated_trading_account",
             self._resolve_account,
+        )
+        self._start_patch(
+            "backend.api.routes.account.get_positions",
+            self._live_positions,
         )
         self._start_patch(
             "backend.api.routes.positions.get_authenticated_trading_account",
