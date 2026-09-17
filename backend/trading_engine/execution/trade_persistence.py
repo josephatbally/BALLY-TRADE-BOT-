@@ -46,9 +46,16 @@ def create_trade_plan_record(
     structural_context: Optional[Dict[str, Any]] = None,
     metadata: Optional[Dict[str, Any]] = None,
     status: str = "READY",
+    conn: Any = None,
 ) -> Dict[str, Any]:
-    """Persist one authoritative trade plan."""
-    conn = get_db_connection()
+    """Persist one authoritative trade plan.
+
+    When ``conn`` is supplied, the caller owns the transaction. The helper
+    will not commit or close that connection.
+    """
+    own_connection = conn is None
+    if own_connection:
+        conn = get_db_connection()
     try:
         cur = conn.execute(
             """
@@ -66,13 +73,19 @@ def create_trade_plan_record(
                 _json(structural_context), _json(metadata), status,
             ),
         )
-        conn.commit()
+        if own_connection:
+            conn.commit()
         row = conn.execute(
             "SELECT * FROM trade_plans WHERE id = ?", (cur.lastrowid,)
         ).fetchone()
         return _row_dict(row) or {}
+    except Exception:
+        if own_connection:
+            conn.rollback()
+        raise
     finally:
-        conn.close()
+        if own_connection:
+            conn.close()
 
 
 def create_order_record(
@@ -92,9 +105,12 @@ def create_order_record(
     broker_retcode: Optional[int] = None,
     request_json: Optional[Dict[str, Any]] = None,
     response_json: Optional[Dict[str, Any]] = None,
+    conn: Any = None,
 ) -> Dict[str, Any]:
     """Persist an order/request and its broker-facing identifiers."""
-    conn = get_db_connection()
+    own_connection = conn is None
+    if own_connection:
+        conn = get_db_connection()
     try:
         cur = conn.execute(
             """
@@ -110,11 +126,17 @@ def create_order_record(
                 broker_retcode, _json(request_json), _json(response_json),
             ),
         )
-        conn.commit()
+        if own_connection:
+            conn.commit()
         row = conn.execute("SELECT * FROM orders WHERE id = ?", (cur.lastrowid,)).fetchone()
         return _row_dict(row) or {}
+    except Exception:
+        if own_connection:
+            conn.rollback()
+        raise
     finally:
-        conn.close()
+        if own_connection:
+            conn.close()
 
 
 def create_execution_record(
@@ -134,9 +156,12 @@ def create_execution_record(
     broker_retcode: Optional[int] = None,
     status: str = "EXECUTED",
     response_json: Optional[Dict[str, Any]] = None,
+    conn: Any = None,
 ) -> Dict[str, Any]:
     """Persist one broker execution/deal."""
-    conn = get_db_connection()
+    own_connection = conn is None
+    if own_connection:
+        conn = get_db_connection()
     try:
         cur = conn.execute(
             """
@@ -152,11 +177,17 @@ def create_execution_record(
                 broker_retcode, status, _json(response_json),
             ),
         )
-        conn.commit()
+        if own_connection:
+            conn.commit()
         row = conn.execute("SELECT * FROM executions WHERE id = ?", (cur.lastrowid,)).fetchone()
         return _row_dict(row) or {}
+    except Exception:
+        if own_connection:
+            conn.rollback()
+        raise
     finally:
-        conn.close()
+        if own_connection:
+            conn.close()
 
 
 def create_trade_record(
@@ -181,9 +212,12 @@ def create_trade_record(
     outcome: Optional[str] = None,
     status: str = "OPEN",
     metadata: Optional[Dict[str, Any]] = None,
+    conn: Any = None,
 ) -> Dict[str, Any]:
     """Persist the durable trade/position outcome record."""
-    conn = get_db_connection()
+    own_connection = conn is None
+    if own_connection:
+        conn = get_db_connection()
     try:
         cur = conn.execute(
             """
@@ -201,14 +235,22 @@ def create_trade_record(
                 swap, net_profit, outcome, status, _json(metadata),
             ),
         )
-        conn.commit()
+        if own_connection:
+            conn.commit()
         row = conn.execute("SELECT * FROM trade_records WHERE id = ?", (cur.lastrowid,)).fetchone()
         return _row_dict(row) or {}
+    except Exception:
+        if own_connection:
+            conn.rollback()
+        raise
     finally:
-        conn.close()
+        if own_connection:
+            conn.close()
 
 
-def update_order_record(order_id: int, **fields: Any) -> Optional[Dict[str, Any]]:
+def update_order_record(
+    order_id: int, *, conn: Any = None, **fields: Any
+) -> Optional[Dict[str, Any]]:
     """Update permitted durable order fields."""
     allowed = {
         "mt5_order_ticket", "status", "broker_retcode", "price", "response_json"
@@ -217,22 +259,32 @@ def update_order_record(order_id: int, **fields: Any) -> Optional[Dict[str, Any]
     if "response_json" in updates:
         updates["response_json"] = _json(updates["response_json"])
     if not updates:
-        return get_order_record(order_id)
+        return get_order_record(order_id, conn=conn)
 
-    assignments = ", ".join(f"{key} = ?" for key in updates)
-    conn = get_db_connection()
+    own_connection = conn is None
+    if own_connection:
+        conn = get_db_connection()
     try:
+        assignments = ", ".join(f"{key} = ?" for key in updates)
         conn.execute(
             f"UPDATE orders SET {assignments}, updated_at=CURRENT_TIMESTAMP WHERE id = ?",
             (*updates.values(), order_id),
         )
-        conn.commit()
+        if own_connection:
+            conn.commit()
         return get_order_record(order_id, conn=conn)
+    except Exception:
+        if own_connection:
+            conn.rollback()
+        raise
     finally:
-        conn.close()
+        if own_connection:
+            conn.close()
 
 
-def update_trade_record(trade_record_id: int, **fields: Any) -> Optional[Dict[str, Any]]:
+def update_trade_record(
+    trade_record_id: int, *, conn: Any = None, **fields: Any
+) -> Optional[Dict[str, Any]]:
     """Update close/outcome fields on a durable trade record."""
     allowed = {
         "position_ticket", "close_price", "closed_at", "gross_profit",
@@ -242,19 +294,27 @@ def update_trade_record(trade_record_id: int, **fields: Any) -> Optional[Dict[st
     if "metadata_json" in updates and not isinstance(updates["metadata_json"], str):
         updates["metadata_json"] = _json(updates["metadata_json"])
     if not updates:
-        return get_trade_record(trade_record_id)
+        return get_trade_record(trade_record_id, conn=conn)
 
-    assignments = ", ".join(f"{key} = ?" for key in updates)
-    conn = get_db_connection()
+    own_connection = conn is None
+    if own_connection:
+        conn = get_db_connection()
     try:
+        assignments = ", ".join(f"{key} = ?" for key in updates)
         conn.execute(
             f"UPDATE trade_records SET {assignments}, updated_at=CURRENT_TIMESTAMP WHERE id = ?",
             (*updates.values(), trade_record_id),
         )
-        conn.commit()
+        if own_connection:
+            conn.commit()
         return get_trade_record(trade_record_id, conn=conn)
+    except Exception:
+        if own_connection:
+            conn.rollback()
+        raise
     finally:
-        conn.close()
+        if own_connection:
+            conn.close()
 
 
 def get_order_record(order_id: int, *, conn: Any = None) -> Optional[Dict[str, Any]]:
