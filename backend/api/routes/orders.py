@@ -17,7 +17,7 @@ from backend.trading_engine.execution.live_executor import (
     close_position,
     close_all_positions,
 )
-from backend.trading_engine.execution_pipeline import execute_pipeline
+from backend.trading_engine.execution.execution_pipeline import execute_pipeline
 from backend.trading_engine.tenant_router import tenant_router
 from backend.security.jwt_auth import get_current_user_optional
 
