@@ -247,7 +247,7 @@ export default function SecurityScreen({ route, navigation }: Props) {
           <View style={styles.cardInfoRow}>
             <Text style={styles.cardInfoLabel}>HARDWARE STATUS</Text>
             <Text style={styles.cardInfoValue}>
-              {sensorAvailable ?  : 'No Sensor Enrolled'}
+              {sensorAvailable ? (sensorType + ' Detected') : 'No Sensor Enrolled'}
             </Text>
           </View>
         </View>
