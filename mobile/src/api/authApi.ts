@@ -21,6 +21,20 @@ export interface RegisterInitiateResponse {
   email_sent?: boolean;
   expires_in_seconds?: number;
   dev_code?: string;
+  verification_required?: boolean;
+  token?: string;
+  token_type?: string;
+  user?: {
+    id: string;
+    full_name: string;
+    email: string;
+    phone: string;
+    country_code: string;
+    role: string;
+    status: string;
+    email_verified: number;
+    phone_verified: number;
+  };
 }
 
 export interface VerifyCodeInput {
