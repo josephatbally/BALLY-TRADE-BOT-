@@ -26,7 +26,7 @@ from backend.trading_engine.execution.trade_persistence import (
 )
 from backend.trading_engine.engine import analyze_live_market
 from backend.trading_engine.hybrid.hybrid_engine import analyze_hybrid_market
-from backend import main as application
+from backend.main import app as application
 from backend.security.jwt_auth import get_current_user
 
 logger = logging.getLogger(__name__)
