@@ -24,8 +24,8 @@ from backend.trading_engine.execution.trade_persistence import (
     create_trade_plan_record,
     create_trade_record,
 )
-from backend.trading_engine.hybrid_engine import analyze_hybrid_market
-from backend.trading_engine.technical_engine import analyze_live_market
+from backend.trading_engine.engine import analyze_live_market
+from backend.trading_engine.hybrid.hybrid_engine import analyze_hybrid_market
 from backend import main as application
 from backend.security.jwt_auth import get_current_user
 
@@ -60,6 +60,7 @@ def _risk_trade_plan(execution: Dict[str, Any]) -> Dict[str, Any]:
 def _persist_execution_lifecycle(
     *,
     user_id: int,
+    requested_lot_size: float,
     requested_comment: str | None,
     trade_plan: Dict[str, Any],
     execution: Dict[str, Any],
@@ -132,7 +133,7 @@ def _persist_execution_lifecycle(
             metadata={
                 "source": "api.orders.execute",
                 "requested_action": decision,
-                "requested_lot_size": None,
+                "requested_lot_size": requested_lot_size,
                 "pipeline_status": execution.get("status"),
             },
             status=plan_status,
@@ -150,6 +151,9 @@ def _persist_execution_lifecycle(
                 "trade_record_id": None,
                 "persistence_status": "TRADE_PLAN_ONLY",
             }
+
+        if execution_volume is None:
+            raise RuntimeError("Authoritative execution volume is missing.")
 
         order_row = create_order_record(
             user_id=user_id,
@@ -327,15 +331,15 @@ def execute_order(
         execute_live=False,
     )
 
-    execution = pipeline_result
     persistence = _persist_execution_lifecycle(
         user_id=user_id,
+        requested_lot_size=float(request.lot_size),
         requested_comment=request.comment,
         trade_plan=trade_plan,
-        execution=execution,
+        execution=pipeline_result,
     )
 
-    executor = execution.get("executor")
+    executor = pipeline_result.get("executor")
     live_result = executor.get("executor_result", {}) if isinstance(executor, dict) else {}
     order_sent = bool(live_result.get("real_trade"))
     ticket = (
@@ -350,8 +354,8 @@ def execute_order(
         "order_sent": order_sent,
         "ticket": ticket,
         "retcode": live_result.get("retcode"),
-        "reason": live_result.get("reason") or execution.get("reason"),
-        "details": execution,
+        "reason": live_result.get("reason") or pipeline_result.get("reason"),
+        "details": pipeline_result,
         "tenant_id": user_id,
         "persistence": persistence,
     }
