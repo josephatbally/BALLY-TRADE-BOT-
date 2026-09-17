@@ -1,3 +1,4 @@
+import BrokerLogo from '../components/broker/BrokerLogo';
 import React, { useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
@@ -159,6 +160,13 @@ export default function AccountInformationScreen({ navigation, route }: Props) {
         {/* 2. MT5 BROKERAGE CREDENTIALS */}
         <SectionHeader title="MT5 BROKERAGE CREDENTIALS" />
         <View style={styles.card}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)' }}>
+            <BrokerLogo server={brokerServer} size={38} style={{ marginRight: 12 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 14 }} allowFontScaling={false}>{brokerServer}</Text>
+              <Text style={{ color: '#64748B', fontSize: 11 }} allowFontScaling={false}>Auto-Detected Broker Platform</Text>
+            </View>
+          </View>
           <InfoRow icon="🏦" title="CONNECTED BROKER SERVER" value={brokerServer} />
           <View style={styles.divider} />
           <InfoRow icon="🔑" title="MT5 ACCOUNT NUMBER (LOGIN)" value={accountNumber} />
