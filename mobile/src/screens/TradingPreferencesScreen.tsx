@@ -101,7 +101,33 @@ export default function TradingPreferencesScreen({
     ]);
 
   const [saved, setSaved] =
-    React.useState(false);/*
+    React.useState(false);
+
+  React.useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem('@bally_trading_preferences');
+        if (raw && isMounted) {
+          const parsed = JSON.parse(raw);
+          if (parsed.tradingMode) setTradingMode(parsed.tradingMode);
+          if (parsed.lotSize) setLotSize(parsed.lotSize);
+          if (Array.isArray(parsed.selectedMarkets) && parsed.selectedMarkets.length > 0) {
+            setSelectedMarkets(parsed.selectedMarkets);
+          }
+        }
+        const remoteMode = await fetchTradingMode();
+        if (isMounted && remoteMode) {
+          setTradingMode(remoteMode);
+        }
+      } catch (err) {
+        // Non-blocking
+      }
+    })();
+    return () => {
+      isMounted = false;
+    };
+  }, []);/*
    * ============================================================
    * NAVIGATION
    * ============================================================
@@ -232,10 +258,10 @@ export default function TradingPreferencesScreen({
       const prefsPayload = {
         tradingMode,
         lotSize,
-        minConfidence,
-        riskReward,
-        slPips,
-        tpPips,
+        minConfidence: 65,
+        riskReward: '1:2',
+        slPips: 25,
+        tpPips: 50,
         selectedMarkets,
         updatedAt: new Date().toISOString(),
       };
