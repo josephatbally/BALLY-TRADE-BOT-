@@ -8,6 +8,11 @@ export interface RegisterInitiateInput {
   channel?: 'email' | 'sms' | 'whatsapp';
 }
 
+export interface LoginInitiateInput {
+  identifier: string;
+  channel?: 'email' | 'sms' | 'whatsapp';
+}
+
 export interface RegisterInitiateResponse {
   status: string;
   message: string;
@@ -59,6 +64,15 @@ export async function initiateRegistration(
   input: RegisterInitiateInput,
 ): Promise<RegisterInitiateResponse> {
   return apiRequest<RegisterInitiateResponse>('/api/v1/auth/register-initiate', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function initiateLogin(
+  input: LoginInitiateInput,
+): Promise<RegisterInitiateResponse> {
+  return apiRequest<RegisterInitiateResponse>('/api/v1/auth/login-initiate', {
     method: 'POST',
     body: JSON.stringify(input),
   });

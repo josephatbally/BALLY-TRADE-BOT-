@@ -1,19 +1,29 @@
 """
 BALLY FLOW - User Authentication & OTP Verification Router (Phase 2 & 3)
-Handles registration, 6-digit OTP codes, JWT session token generation,
-and multi-tenant broker profile persistence.
+Handles registration, sign-in, 6-digit OTP codes, JWT session token generation,
+Gmail SMTP email dispatch, and multi-tenant broker profile persistence.
 """
 
 from __future__ import annotations
 import os
 import smtplib
 import secrets
+from pathlib import Path
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel
+
+# Try auto-loading .env from project root
+try:
+    from dotenv import load_dotenv
+    env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+    if env_path.exists():
+        load_dotenv(dotenv_path=env_path)
+except Exception:
+    pass
 
 from backend.database import get_db_connection
 from backend.security.jwt_auth import (
@@ -31,6 +41,10 @@ class RegisterInitiateRequest(BaseModel):
     email: str
     phone: str
     country_code: str = "+255"
+    channel: str = "email"
+
+class LoginInitiateRequest(BaseModel):
+    identifier: str
     channel: str = "email"
 
 class VerifyCodeRequest(BaseModel):
@@ -53,14 +67,21 @@ class BrokerProfileRequest(BaseModel):
 # ----------------- DISPATCH HELPERS -----------------
 
 def send_email_otp(to_email: str, code: str, user_name: str) -> bool:
-    smtp_host = os.getenv("SMTP_HOST", "")
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
-    smtp_user = os.getenv("SMTP_USER", "")
-    smtp_pass = os.getenv("SMTP_PASS", "")
-    from_email = os.getenv("SMTP_FROM", smtp_user or "noreply@ballyflow.com")
+    """
+    Sends institutional 6-digit OTP verification email.
+    Optimized for Gmail SMTP (smtp.gmail.com) with TLS port 587 or SSL port 465.
+    """
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
+    smtp_port_raw = os.getenv("SMTP_PORT", "587").strip()
+    smtp_port = int(smtp_port_raw) if smtp_port_raw.isdigit() else 587
+    smtp_user = os.getenv("SMTP_USER", "").strip()
+    # Google App Passwords often have spaces (e.g. 'abcd efgh ijkl mnop')
+    smtp_pass = os.getenv("SMTP_PASS", "").replace(" ", "").strip()
+    from_email = os.getenv("SMTP_FROM", smtp_user or "josephatbally5@gmail.com").strip()
 
-    if not (smtp_host and smtp_user and smtp_pass):
-        print(f"\n[BALLY FLOW EMAIL GATEWAY] SMTP not configured. OTP for {to_email}: {code}")
+    if not (smtp_user and smtp_pass):
+        print(f"\n[BALLY FLOW EMAIL GATEWAY] Gmail SMTP credentials not set in environment or .env.")
+        print(f"OTP for {to_email}: >>> {code} <<< (Dev fallback displayed in console)\n")
         return False
 
     try:
@@ -69,19 +90,48 @@ def send_email_otp(to_email: str, code: str, user_name: str) -> bool:
         msg["From"] = f"BALLY FLOW Security <{from_email}>"
         msg["To"] = to_email
 
-        text = f"Hello {user_name},\n\nYour BALLY FLOW verification code is: {code}\n\nValid for 5 minutes. Do not share this code."
+        text = (
+            f"Hello {user_name},\n\n"
+            f"Your BALLY FLOW verification code is: {code}\n\n"
+            f"Valid for 5 minutes. Enter this code in your BALLY FLOW terminal to authenticate.\n"
+            f"If you did not request this verification, please secure your account immediately.\n\n"
+            f"BALLY FLOW QUANTUM COCKPIT"
+        )
+
         html = f"""
+        <!DOCTYPE html>
         <html>
-          <body style="background-color: #05070D; color: #FFFFFF; font-family: sans-serif; padding: 24px;">
-            <div style="max-width: 480px; margin: 0 auto; background: #0A0E18; border: 1px solid #1E293B; border-radius: 16px; padding: 28px; text-align: center;">
-              <h1 style="color: #35E68A; margin: 0; font-size: 24px; letter-spacing: 2px;">BALLY FLOW</h1>
-              <p style="color: #7D8AA8; font-size: 13px; margin-top: 4px;">INSTITUTIONAL EXECUTION & RISK COCKPIT</p>
-              <div style="margin: 32px 0;">
-                <p style="color: #94A3B8; font-size: 14px;">Your 6-digit security verification code is:</p>
-                <div style="background: #05070D; border: 1px solid #334BFF; border-radius: 10px; padding: 16px; font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #35E68A;">
-                  {code}
-                </div>
-                <p style="color: #64748B; font-size: 12px; margin-top: 12px;">Expires in 5 minutes. If you did not request this, please ignore.</p>
+          <head>
+            <meta charset="utf-8">
+            <style>
+              body {{ background-color: #05070D; color: #FFFFFF; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 24px; }}
+              .card {{ max-width: 480px; margin: 0 auto; background: #0A0E18; border: 1px solid #1E293B; border-radius: 18px; padding: 32px 24px; text-align: center; box-shadow: 0 12px 30px rgba(0,0,0,0.5); }}
+              .brand {{ color: #FFFFFF; font-size: 24px; font-weight: 900; letter-spacing: 3px; margin: 0; }}
+              .badge {{ display: inline-block; background: rgba(53, 230, 138, 0.12); border: 1px solid rgba(53, 230, 138, 0.3); border-radius: 12px; padding: 4px 12px; color: #35E68A; font-size: 10px; font-weight: 800; letter-spacing: 1.5px; margin-top: 8px; }}
+              .greeting {{ color: #94A3B8; font-size: 14px; margin-top: 24px; }}
+              .code-box {{ margin: 24px 0; background: #05070D; border: 1px solid #334BFF; border-radius: 12px; padding: 18px; }}
+              .code-value {{ font-size: 34px; font-weight: 900; letter-spacing: 10px; color: #35E68A; margin: 0; font-family: 'Courier New', Courier, monospace; }}
+              .notice {{ color: #64748B; font-size: 12px; line-height: 18px; margin-top: 14px; }}
+              .footer {{ border-top: 1px solid #172032; margin-top: 28px; padding-top: 16px; color: #475569; font-size: 10px; letter-spacing: 1px; }}
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <h1 class="brand">BALLY FLOW</h1>
+              <div class="badge">INSTITUTIONAL QUANTUM COCKPIT</div>
+              <p class="greeting">Hello <strong style="color: #FFFFFF;">{user_name}</strong>,<br>Use the 6-digit security code below to authorize your session:</p>
+              
+              <div class="code-box">
+                <div class="code-value">{code}</div>
+              </div>
+              
+              <p class="notice">
+                Code expires in <strong>5 minutes</strong>.<br>
+                Never share this code with anyone. BALLY FLOW staff will never ask for your code.
+              </p>
+              
+              <div class="footer">
+                BALLY FLOW HIGH-FREQUENCY TRADING ENGINE • ZERO-TRUST PROTOCOL
               </div>
             </div>
           </body>
@@ -90,13 +140,23 @@ def send_email_otp(to_email: str, code: str, user_name: str) -> bool:
         msg.attach(MIMEText(text, "plain"))
         msg.attach(MIMEText(html, "html"))
 
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_pass)
-            server.sendmail(from_email, [to_email], msg.as_string())
+        # Support SSL (465) or STARTTLS (587)
+        if smtp_port == 465:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=12) as server:
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(from_email, [to_email], msg.as_string())
+        else:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=12) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(from_email, [to_email], msg.as_string())
+        
+        print(f"[BALLY FLOW EMAIL GATEWAY] Successfully sent OTP email via Gmail to {to_email}")
         return True
     except Exception as exc:
-        print(f"[AUTH ERROR] Failed sending email: {exc}")
+        print(f"[AUTH ERROR] Failed dispatching Gmail OTP email: {exc}")
         return False
 
 # ----------------- ROUTE HANDLERS -----------------
@@ -155,9 +215,9 @@ def register_initiate(req: RegisterInitiateRequest):
             email_sent = send_email_otp(email, code, full_name)
 
         print("=" * 68)
-        print(f"[BALLY FLOW AUTH] 6-Digit OTP for {email} ({country_code} {phone}):")
+        print(f"[BALLY FLOW AUTH REGISTRATION] 6-Digit OTP for {email} ({country_code} {phone}):")
         print(f">>>  {code}  <<<")
-        print(f"Target: {email} | Channel: {channel} | Expires: 5 minutes")
+        print(f"Target: {email} | Channel: {channel} | Email Sent: {email_sent} | Expires: 5 min")
         print("=" * 68)
 
         return {
@@ -172,6 +232,86 @@ def register_initiate(req: RegisterInitiateRequest):
     except Exception as exc:
         conn.rollback()
         raise HTTPException(status_code=500, detail=f"Database registration error: {exc}")
+    finally:
+        conn.close()
+
+@router.post("/login-initiate")
+def login_initiate(req: LoginInitiateRequest):
+    """
+    Seamless Sign-In endpoint: allows existing traders to request a 6-digit OTP
+    by entering just their email or registered phone number.
+    """
+    identifier = req.identifier.strip().lower()
+    channel = req.channel.strip().lower()
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+            SELECT * FROM users 
+            WHERE email = ? OR phone = ? OR (country_code || phone) = ?
+            ORDER BY id DESC LIMIT 1
+        """, (identifier, identifier, identifier))
+        user = cursor.fetchone()
+
+        if not user:
+            # If not found but looks like email, register as trader automatically
+            if "@" in identifier:
+                cursor.execute("SELECT COUNT(*) AS total FROM users")
+                user_count = cursor.fetchone()["total"]
+                role = "admin" if user_count == 0 else "trader"
+                user_name = identifier.split("@")[0].capitalize()
+                cursor.execute("""
+                    INSERT INTO users (full_name, email, phone, country_code, role, status)
+                    VALUES (?, ?, '', '+255', ?, 'pending_verification')
+                """, (user_name, identifier, role))
+                user_id = cursor.lastrowid
+                user_name_to_use = user_name
+                user_email = identifier
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="No user found with this email or phone. Please create an account."
+                )
+        else:
+            user_id = user["id"]
+            user_name_to_use = user["full_name"]
+            user_email = user["email"]
+
+        code = f"{secrets.randbelow(900000) + 100000}"
+        expires_at = datetime.utcnow() + timedelta(minutes=5)
+
+        cursor.execute("""
+            UPDATE verification_codes 
+            SET is_used = 1 
+            WHERE identifier = ? AND is_used = 0
+        """, (user_email,))
+
+        cursor.execute("""
+            INSERT INTO verification_codes (user_id, identifier, channel, code, expires_at, attempts, is_used)
+            VALUES (?, ?, ?, ?, ?, 0, 0)
+        """, (user_id, user_email, channel, code, expires_at.strftime("%Y-%m-%d %H:%M:%S")))
+
+        conn.commit()
+
+        email_sent = send_email_otp(user_email, code, user_name_to_use)
+
+        print("=" * 68)
+        print(f"[BALLY FLOW SIGN-IN] 6-Digit OTP for {user_email}:")
+        print(f">>>  {code}  <<<")
+        print(f"Target: {user_email} | Channel: {channel} | Email Sent: {email_sent} | Expires: 5 min")
+        print("=" * 68)
+
+        return {
+            "status": "SENT",
+            "message": f"Verification code dispatched to {user_email}",
+            "identifier": user_email,
+            "channel": channel,
+            "email_sent": email_sent,
+            "expires_in_seconds": 300,
+            "dev_code": code,
+        }
     finally:
         conn.close()
 
@@ -251,7 +391,7 @@ def verify_code(req: VerifyCodeRequest):
                 "id": user_id_str,
                 "full_name": user["full_name"],
                 "email": user["email"],
-                "phone": f"{user['country_code']} {user['phone']}",
+                "phone": f"{user['country_code']} {user['phone']}".strip(),
                 "country_code": user["country_code"],
                 "role": user["role"],
                 "status": user["status"],
@@ -281,7 +421,7 @@ def resend_code(req: ResendCodeRequest):
         if last:
             last_time = datetime.strptime(last["created_at"], "%Y-%m-%d %H:%M:%S")
             if (datetime.utcnow() - last_time).total_seconds() < 30:
-                raise HTTPException(status_code=429, detail="Please wait before requesting another code.")
+                raise HTTPException(status_code=429, detail="Please wait 30 seconds before requesting another code.")
 
         code = f"{secrets.randbelow(900000) + 100000}"
         expires_at = datetime.utcnow() + timedelta(minutes=5)
@@ -293,14 +433,15 @@ def resend_code(req: ResendCodeRequest):
         """, (user["id"], identifier, req.channel, code, expires_at.strftime("%Y-%m-%d %H:%M:%S")))
         conn.commit()
 
-        send_email_otp(user["email"], code, user["full_name"])
+        email_sent = send_email_otp(user["email"], code, user["full_name"])
 
-        print(f"[BALLY FLOW AUTH RESEND] New OTP for {identifier}: >>> {code} <<<")
+        print(f"[BALLY FLOW AUTH RESEND] New OTP for {identifier}: >>> {code} <<< (Email Sent: {email_sent})")
 
         return {
             "status": "RESENT",
             "message": f"Fresh verification code dispatched to {identifier}",
             "expires_in_seconds": 300,
+            "email_sent": email_sent,
             "dev_code": code,
         }
     finally:
