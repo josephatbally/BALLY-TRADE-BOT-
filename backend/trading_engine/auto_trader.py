@@ -22,6 +22,8 @@ from backend.trading_engine.market_data.mt5_connection import (
 )
 from backend.trading_engine.execution.execution_pipeline import execute_trade_pipeline
 from backend.trading_engine.execution.live_executor import close_position, execute_live_trade
+from backend.trading_engine.tenant_router import tenant_router
+from backend.trading_engine.trading_account_runtime import resolve_authenticated_trading_account
 
 logger = logging.getLogger("AutoTrader")
 
@@ -150,7 +152,7 @@ class AutoTrader:
 
     def get_status(self) -> Dict[str, Any]:
         account = get_account_info() if is_mt5_connected() else {}
-        positions = get_positions() if is_mt5_connected() else []
+        positions = tenant_router.filter_user_positions(self.owner_user_id, get_positions() or []) if is_mt5_connected() and self.owner_user_id is not None else []
         return {
             "enabled": self.enabled,
             "owner_user_id": self.owner_user_id,
@@ -174,7 +176,7 @@ class AutoTrader:
         """Active risk and profit manager: closes at targets and cuts losses early."""
         if not self.auto_manage_exits or not is_mt5_connected():
             return
-        positions = get_positions() or []
+        positions = tenant_router.filter_user_positions(self.owner_user_id, get_positions() or [])
         for pos in positions:
             ticket = pos.get("ticket") if isinstance(pos, dict) else getattr(pos, "ticket", None)
             profit = pos.get("profit") if isinstance(pos, dict) else getattr(pos, "profit", 0.0)
