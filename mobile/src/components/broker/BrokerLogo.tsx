@@ -25,7 +25,7 @@ export function detectBrokerBrand(company?: string | null, server?: string | nul
       secondaryColor: '#FFA500',
       badgeBg: '#181816',
       borderColor: 'rgba(255, 215, 0, 0.4)',
-      remoteLogoUrl: 'https://img.icons8.com/color/120/exness.png',
+      // remoteLogoUrl omitted to render exact native vector phone badge
     };
   }
 
@@ -254,31 +254,29 @@ function renderVectorBrokerEmblem(brand: BrokerBrand, size: number) {
 
   switch (brand.key) {
     case 'exness': {
-      // Exness geometric interlocking emblem in brand gold
+      // Iconic Exness yellow circular badge with bold black "ex" (matches mobile app launcher icon)
       return (
         <Svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
           <Defs>
             <LinearGradient id="exnessGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <Stop offset="0%" stopColor="#FFE066" />
-              <Stop offset="100%" stopColor="#FFB800" />
+              <Stop offset="0%" stopColor="#FFEA00" />
+              <Stop offset="100%" stopColor="#FFCC00" />
             </LinearGradient>
           </Defs>
           <G transform={`translate(${cx}, ${cy})`}>
-            {/* Top-left rounded wing */}
-            <Path
-              d={`M -${s * 0.3} -${s * 0.05} C -${s * 0.3} -${s * 0.28}, -${s * 0.12} -${s * 0.32}, 0 -${s * 0.32} C -${s * 0.05} -${s * 0.18}, -${s * 0.15} -${s * 0.05}, -${s * 0.3} -${s * 0.05} Z`}
-              fill="url(#exnessGrad)"
-            />
-            {/* Bottom-right rounded wing */}
-            <Path
-              d={`M ${s * 0.3} ${s * 0.05} C ${s * 0.3} ${s * 0.28}, ${s * 0.12} ${s * 0.32}, 0 ${s * 0.32} C ${s * 0.05} ${s * 0.18}, ${s * 0.15} ${s * 0.05}, ${s * 0.3} ${s * 0.05} Z`}
-              fill="url(#exnessGrad)"
-            />
-            {/* Center diamond link */}
-            <Polygon
-              points={`0,-${s * 0.16} ${s * 0.18},0 0,${s * 0.16} -${s * 0.18},0`}
-              fill="#FFE066"
-            />
+            {/* Bright yellow circular badge */}
+            <Circle cx="0" cy="0" r={s * 0.42} fill="url(#exnessGrad)" />
+            {/* Bold black lowercase 'ex' lettering */}
+            <SvgText
+              x="0"
+              y={s * 0.13}
+              textAnchor="middle"
+              fill="#121212"
+              fontSize={s * 0.38}
+              fontWeight="900"
+              letterSpacing="-0.5">
+              ex
+            </SvgText>
           </G>
         </Svg>
       );
