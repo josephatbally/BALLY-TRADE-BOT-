@@ -13,8 +13,10 @@ from backend.trading_engine.tenant_router import TenantRouter
 
 
 class DB3TenantIsolationTest(unittest.TestCase):
+    DB_URI = "file:db3_tenant_isolation_test?mode=memory&cache=shared"
+
     def setUp(self) -> None:
-        self.conn = sqlite3.connect(":memory:")
+        self.conn = sqlite3.connect(self.DB_URI, uri=True)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(
             """
@@ -65,7 +67,16 @@ class DB3TenantIsolationTest(unittest.TestCase):
         self.conn.close()
 
     def _connection(self):
-        return self.conn
+        """Return a fresh connection to the shared in-memory test database.
+
+        Production code closes each connection it acquires. Returning a new
+        connection here keeps the test isolated while exercising that same
+        connection lifecycle instead of handing the router the test fixture's
+        anchor connection.
+        """
+        conn = sqlite3.connect(self.DB_URI, uri=True)
+        conn.row_factory = sqlite3.Row
+        return conn
 
     def test_active_trading_account_is_primary_and_user_scoped(self) -> None:
         self.conn.execute(
