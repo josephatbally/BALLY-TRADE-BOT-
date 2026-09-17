@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from backend.database import get_db_connection
 from backend.security.jwt_auth import create_access_token, get_current_user, get_current_user_optional
+from backend.trading_engine.trading_account_persistence import create_trading_account, get_active_trading_account
 
 router = APIRouter()
 OTP_TTL_SECONDS = 600
@@ -186,12 +187,10 @@ def verify_code(req: VerifyCodeRequest):
         if otp["attempts"] >= 5:
             cur.execute("UPDATE verification_codes SET is_used=1 WHERE id=?", (otp["id"],)); conn.commit()
             raise HTTPException(400, "Maximum verification attempts exceeded. Please request a new code.")
-
         result = _check_provider_verification(identifier if otp["channel"] != "email" else otp["destination"], req.code.strip())
         if result.get("status") != "approved":
             cur.execute("UPDATE verification_codes SET attempts=attempts+1 WHERE id=?", (otp["id"],)); conn.commit()
             raise HTTPException(400, "Invalid verification code. Please check and try again.")
-
         now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         cur.execute("UPDATE verification_codes SET is_used=1, verified_at=? WHERE id=?", (now, otp["id"]))
         if otp["channel"] == "email":
@@ -231,10 +230,22 @@ def resend_code(req: ResendCodeRequest):
 def get_current_user_profile(user: Dict[str, Any] = Depends(get_current_user)):
     conn = get_db_connection()
     try:
-        cur = conn.cursor()
-        cur.execute("SELECT broker_server,broker_name,account_number,currency,leverage,is_demo FROM broker_profiles WHERE user_id=? AND is_active=1 ORDER BY id DESC LIMIT 1", (int(user["id"]),))
-        broker = cur.fetchone()
-        return {"user": user, "broker": dict(broker) if broker else None}
+        active_account = get_active_trading_account(int(user["id"]), conn=conn)
+        if active_account:
+            broker = {
+                "broker_server": active_account["broker_server"],
+                "broker_name": active_account["broker_name"],
+                "account_number": active_account["account_number"],
+                "currency": active_account["currency"],
+                "leverage": active_account["leverage"],
+                "is_demo": bool(active_account["is_demo"]),
+            }
+        else:
+            cur = conn.cursor()
+            cur.execute("SELECT broker_server,broker_name,account_number,currency,leverage,is_demo FROM broker_profiles WHERE user_id=? AND is_active=1 ORDER BY id DESC LIMIT 1", (int(user["id"]),))
+            legacy = cur.fetchone()
+            broker = dict(legacy) if legacy else None
+        return {"user": user, "broker": broker}
     finally:
         conn.close()
 
@@ -244,10 +255,28 @@ def save_broker_profile(req: BrokerProfileRequest, user: Dict[str, Any] = Depend
     conn = get_db_connection()
     try:
         cur = conn.cursor()
-        cur.execute("UPDATE broker_profiles SET is_active=0 WHERE user_id=?", (int(user["id"]),))
-        cur.execute("INSERT INTO broker_profiles (user_id,broker_server,broker_name,account_number,password_encrypted,currency,leverage,is_demo,is_active) VALUES (?,?,?,?,?,?,?,?,1)", (int(user["id"]), req.broker_server.strip(), req.broker_name.strip(), req.account_number.strip(), req.password.strip() if req.password else None, req.currency.strip().upper(), req.leverage, int(req.is_demo)))
+        user_id = int(user["id"])
+        cur.execute("UPDATE broker_profiles SET is_active=0 WHERE user_id=?", (user_id,))
+        cur.execute("INSERT INTO broker_profiles (user_id,broker_server,broker_name,account_number,password_encrypted,currency,leverage,is_demo,is_active) VALUES (?,?,?,?,?,?,?,?,1)", (user_id, req.broker_server.strip(), req.broker_name.strip(), req.account_number.strip(), req.password.strip() if req.password else None, req.currency.strip().upper(), req.leverage, int(req.is_demo)))
+        broker_profile_id = cur.lastrowid
+        create_trading_account(
+            user_id=user_id,
+            broker_profile_id=broker_profile_id,
+            platform="MT5",
+            account_number=req.account_number,
+            broker_server=req.broker_server,
+            broker_name=req.broker_name,
+            currency=req.currency,
+            leverage=req.leverage,
+            is_demo=req.is_demo,
+            connection_status="DISCONNECTED",
+            conn=conn,
+        )
         conn.commit()
         return {"status":"SAVED","message":"Broker profile successfully linked to trader account.","account_number":req.account_number.strip(),"broker_server":req.broker_server.strip()}
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
