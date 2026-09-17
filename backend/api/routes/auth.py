@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta
@@ -65,25 +68,51 @@ def _local_verification_enabled() -> bool:
     return AUTH_VERIFICATION_MODE in {"local", "dev", "development"}
 
 
-def _activate_user_locally(conn, user: Any, channel: str) -> dict[str, Any]:
-    """Development-only verification path; no OTP provider or plaintext code is used."""
+def _local_verification_enabled() -> bool:
+    return AUTH_VERIFICATION_MODE in {"local", "dev", "development"}
+
+
+def _local_code_hash(code: str) -> str:
+    return hashlib.sha256(code.encode("utf-8")).hexdigest()
+
+
+def _issue_local_verification(conn, user: Any, channel: str) -> dict[str, Any]:
+    """Development-only OTP flow. The code is returned only to the local UI."""
+    destination = _destination(user, channel)
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    expires_at = datetime.utcnow() + timedelta(seconds=OTP_TTL_SECONDS)
     cur = conn.cursor()
     cur.execute(
-        "UPDATE users SET status='active', email_verified=?, phone_verified=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-        (1 if channel == "email" else 0, 1 if channel != "email" else 0, user["id"]),
+        "UPDATE verification_codes SET is_used=1 WHERE user_id=? AND is_used=0",
+        (user["id"],),
     )
-    cur.execute("SELECT * FROM users WHERE id=?", (user["id"],))
-    activated = cur.fetchone()
+    cur.execute(
+        """
+        INSERT INTO verification_codes
+        (user_id, identifier, channel, code, code_hash, destination, provider,
+         provider_verification_id, expires_at, attempts, is_used, delivery_status)
+        VALUES (?, ?, ?, NULL, ?, ?, 'local_dev', NULL, ?, 0, 0, 'generated')
+        """,
+        (
+            user["id"],
+            destination,
+            channel,
+            _local_code_hash(code),
+            destination,
+            expires_at.strftime("%Y-%m-%d %H:%M:%S"),
+        ),
+    )
     conn.commit()
-    token = create_access_token(str(activated["id"]), activated["email"], activated["role"])
     return {
-        "status": "VERIFIED",
-        "verification_required": False,
-        "message": "Account verified in local development mode. External OTP delivery is disabled.",
-        "token": token,
-        "token_type": "bearer",
-        "user": {k: activated[k] for k in ("id", "full_name", "email", "phone", "country_code", "role", "status", "email_verified", "phone_verified")},
+        "status": "SENT",
+        "verification_required": True,
+        "identifier": destination,
+        "channel": channel,
+        "expires_in_seconds": OTP_TTL_SECONDS,
+        "dev_code": code,
+        "message": "Development verification code generated. Enter the displayed 6-digit code to continue.",
     }
+
 
 def _channel(value: str) -> str:
     value = value.strip().lower()
@@ -179,7 +208,7 @@ def register_initiate(req: RegisterInitiateRequest):
         user = cur.fetchone()
         channel = _channel(req.channel)
         if _local_verification_enabled():
-            return _activate_user_locally(conn, user, channel)
+            return _issue_local_verification(conn, user, channel)
         return _issue_verification(conn, user, channel)
     finally:
         conn.close()
@@ -199,7 +228,7 @@ def login_initiate(req: LoginInitiateRequest):
         if user["status"] != "active":
             raise HTTPException(403, "Account is not verified. Complete registration verification first.")
         if _local_verification_enabled():
-            return _activate_user_locally(conn, user, channel)
+            return _issue_local_verification(conn, user, channel)
         return _issue_verification(conn, user, channel)
     finally:
         conn.close()
@@ -221,10 +250,25 @@ def verify_code(req: VerifyCodeRequest):
         if otp["attempts"] >= 5:
             cur.execute("UPDATE verification_codes SET is_used=1 WHERE id=?", (otp["id"],)); conn.commit()
             raise HTTPException(400, "Maximum verification attempts exceeded. Please request a new code.")
-        result = _check_provider_verification(identifier if otp["channel"] != "email" else otp["destination"], req.code.strip())
-        if result.get("status") != "approved":
-            cur.execute("UPDATE verification_codes SET attempts=attempts+1 WHERE id=?", (otp["id"],)); conn.commit()
-            raise HTTPException(400, "Invalid verification code. Please check and try again.")
+        submitted_code = req.code.strip()
+        if otp["provider"] == "local_dev":
+            valid = hmac.compare_digest(
+                _local_code_hash(submitted_code),
+                otp["code_hash"] or "",
+            )
+            if not valid:
+                cur.execute("UPDATE verification_codes SET attempts=attempts+1 WHERE id=?", (otp["id"],))
+                conn.commit()
+                raise HTTPException(400, "Invalid verification code. Please check the displayed code and try again.")
+        else:
+            result = _check_provider_verification(
+                identifier if otp["channel"] != "email" else otp["destination"],
+                submitted_code,
+            )
+            if result.get("status") != "approved":
+                cur.execute("UPDATE verification_codes SET attempts=attempts+1 WHERE id=?", (otp["id"],))
+                conn.commit()
+                raise HTTPException(400, "Invalid verification code. Please check and try again.")
         now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         cur.execute("UPDATE verification_codes SET is_used=1, verified_at=? WHERE id=?", (now, otp["id"]))
         if otp["channel"] == "email":
@@ -255,6 +299,8 @@ def resend_code(req: ResendCodeRequest):
         last = cur.fetchone()
         if last and (datetime.utcnow() - datetime.strptime(last["created_at"], "%Y-%m-%d %H:%M:%S")).total_seconds() < OTP_RESEND_SECONDS:
             raise HTTPException(429, "Please wait 30 seconds before requesting another code.")
+        if _local_verification_enabled():
+            return _issue_local_verification(conn, user, channel)
         return _issue_verification(conn, user, channel)
     finally:
         conn.close()
