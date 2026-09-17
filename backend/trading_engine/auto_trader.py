@@ -115,7 +115,6 @@ class AutoTrader:
             self.logs.pop()
 
     def start(self):
-        self.enabled = True
         if not self.running or self._task is None or self._task.done():
             self.running = True
             try:
