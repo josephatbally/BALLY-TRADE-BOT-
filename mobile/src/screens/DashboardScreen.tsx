@@ -26,6 +26,8 @@ import {
   getApplicationStatus,
   getHealth,
   updateApplicationMode,
+  getBotTelemetry,
+  toggleBotAutoTrade,
 } from '../api/appApi';
 import {AccountResponse} from '../api/accountApi';
 import * as accountApiModule from '../api/accountApi';
@@ -244,8 +246,17 @@ export default function DashboardScreen({
 
   const [debugError, setDebugError] = React.useState<string | null>(null);
 
-  const toggleBotAutoTrade = async (_enabled: boolean): Promise<void> => {
-    // Bot state is currently managed locally until the backend endpoint is available.
+  const toggleBotAutoTradeBackend = async (enabled: boolean): Promise<void> => {
+    try {
+      const response = await toggleBotAutoTrade(enabled);
+      if (mountedRef.current) {
+        setBotEnabled(Boolean(response?.auto_trading_enabled));
+      }
+    } catch (error) {
+      if (mountedRef.current) {
+        setDebugError(error instanceof Error ? error.message : String(error));
+      }
+    }
   };
   /*
    * Prevent state updates after the screen has unmounted.
@@ -785,7 +796,7 @@ export default function DashboardScreen({
           <Switch
             value={botEnabled}
             onValueChange={async (newValue) => {
-              setBotEnabled(newValue);
+              await toggleBotAutoTradeBackend(newValue);
               try {
                 await toggleBotAutoTrade(newValue);
               } catch (err) {
