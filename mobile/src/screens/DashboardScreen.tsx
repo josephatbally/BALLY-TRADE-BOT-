@@ -1,4 +1,4 @@
-import { loadUserProfilePhoto } from '../utils/userPhoto';
+﻿import { loadUserProfilePhoto } from '../utils/userPhoto';
 import BrokerLogo from '../components/broker/BrokerLogo';
 import PairLogo from '../components/broker/PairLogo';
 ﻿import Svg, { Defs, LinearGradient, Stop, Polygon, Polyline, Circle } from 'react-native-svg';
@@ -176,6 +176,8 @@ export default function DashboardScreen({
 
   const [botEnabled, setBotEnabled] =
     React.useState(false);
+      const [activeStrategy, setActiveStrategy] = useState<'SMC' | 'CANDLE_SCALPER'>('SMC');
+
 
   const [tradingMode, setTradingMode] =
     React.useState<TradingMode>('TECHNICAL');
@@ -812,93 +814,35 @@ export default function DashboardScreen({
             accessibilityLabel="Trading bot status"
           />
         </View>
-
         {/* ================================================== */}
-        {/* TRADING MODE */}
+        {/* ACTIVE STRATEGY SELECTOR */}
         {/* ================================================== */}
-
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>
-            TRADING MODE
-          </Text>
-
-          <Text style={styles.sectionMeta}>
-            {modeUpdating
-              ? 'UPDATING'
-              : isApiLive
-              ? 'SYNCED'
-              : 'LOCAL'}
-          </Text>
-        </View>
-
-        <View style={styles.modeCard}>
-          <View style={styles.modeHeader}>
-            <View>
-              <Text style={styles.modeTitle}>
-                {tradingMode}
-              </Text>
-
-              <Text style={styles.modeDescription}>
-                {tradingMode === 'TECHNICAL'
-                  ? 'SMC technical market analysis'
-                  : 'Technical + fundamental analysis'}
-              </Text>
-            </View>
-
-            <View style={styles.activePill}>
-              <View style={styles.activePillDot} />
-
-              <Text style={styles.activePillText}>
-                {modeUpdating
-                  ? 'SYNCING'
-                  : 'ACTIVE'}
-              </Text>
+        <View style={styles.strategyCard}>
+          <View style={styles.cardHeaderRow}>
+            <Text style={styles.cardSectionLabel} allowFontScaling={false}>ACTIVE BOT STRATEGY</Text>
+            <View style={styles.statusLivePill}>
+              <View style={styles.statusDotLive} />
+              <Text style={styles.statusLiveText} allowFontScaling={false}>AUTONOMOUS</Text>
             </View>
           </View>
 
-          <View style={styles.modeButtons}>
+          <View style={styles.strategyButtonsRow}>
             <Pressable
-              disabled={modeUpdating}
-              onPress={openTechnicalMode}
-              style={({pressed}) => [
-                styles.modeButton,
-                tradingMode === 'TECHNICAL' &&
-                  styles.modeButtonActive,
-                modeUpdating &&
-                  styles.modeButtonDisabled,
-                pressed &&
-                  styles.quickCardPressed,
-              ]}>
-              <Text
-                style={[
-                  styles.modeButtonText,
-                  tradingMode === 'TECHNICAL' &&
-                    styles.modeButtonTextActive,
-                ]}>
-                TECHNICAL
+              style={[styles.strategyBtn, activeStrategy === 'SMC' && styles.strategyBtnActive]}
+              onPress={() => setActiveStrategy('SMC')}>
+              <Text style={[styles.strategyBtnText, activeStrategy === 'SMC' && styles.strategyBtnTextActive]}>
+                SMC INSTITUTIONAL
               </Text>
+              <Text style={styles.strategyBtnDesc}>H4→H1→M15 Structure</Text>
             </Pressable>
 
             <Pressable
-              disabled={modeUpdating}
-              onPress={openHybridMode}
-              style={({pressed}) => [
-                styles.modeButton,
-                tradingMode === 'HYBRID' &&
-                  styles.modeButtonActive,
-                modeUpdating &&
-                  styles.modeButtonDisabled,
-                pressed &&
-                  styles.quickCardPressed,
-              ]}>
-              <Text
-                style={[
-                  styles.modeButtonText,
-                  tradingMode === 'HYBRID' &&
-                    styles.modeButtonTextActive,
-                ]}>
-                HYBRID
+              style={[styles.strategyBtn, activeStrategy === 'CANDLE_SCALPER' && styles.strategyBtnActive]}
+              onPress={() => setActiveStrategy('CANDLE_SCALPER')}>
+              <Text style={[styles.strategyBtnText, activeStrategy === 'CANDLE_SCALPER' && styles.strategyBtnTextActive]}>
+                CANDLE SCALPER
               </Text>
+              <Text style={styles.strategyBtnDesc}>M1/M5 Rapid Bursts</Text>
             </Pressable>
           </View>
         </View>
@@ -1221,8 +1165,11 @@ export default function DashboardScreen({
               </View>
               <View style={{ width: 90, paddingRight: 6, alignItems: 'flex-start', justifyContent: 'center' }}>
                 <Text allowFontScaling={false} style={[styles.tablePrice, { fontVariant: ['tabular-nums'] }]}>
-                  {market.price && market.price !== '�' && market.price !== '--' ? market.price : 'LIVE'}
-                </Text>
+  {market.price && market.price !== '' && market.price !== '--'
+    ? market.price
+    : (market.bid ? String(market.bid) : (market.raw_price ? String(market.raw_price) : '--'))}
+</Text>
+
               </View>
               <View style={{ width: 80, alignItems: 'center', justifyContent: 'center' }}>
                 <MarketLineChart points={market.points} direction={market.direction} />
@@ -2207,4 +2154,82 @@ const styles = StyleSheet.create({
   metricGreen: {
     color: '#22C55E',
   },
+    strategyCard: {
+    backgroundColor: '#0B0F19',
+    borderRadius: 16,
+    padding: 16,
+    marginHorizontal: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+  },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  cardSectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#94A3B8',
+    letterSpacing: 1,
+  },
+  statusLivePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+  },
+  statusDotLive: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+    marginRight: 6,
+  },
+  statusLiveText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#10B981',
+    letterSpacing: 0.5,
+  },
+  strategyButtonsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  strategyBtn: {
+    flex: 1,
+    backgroundColor: '#111827',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#1F2937',
+    alignItems: 'center',
+  },
+  strategyBtnActive: {
+    backgroundColor: 'rgba(51, 75, 255, 0.15)',
+    borderColor: '#334BFF',
+  },
+  strategyBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#64748B',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  strategyBtnTextActive: {
+    color: '#FFFFFF',
+  },
+  strategyBtnDesc: {
+    fontSize: 10,
+    color: '#94A3B8',
+    textAlign: 'center',
+  },
+
 });

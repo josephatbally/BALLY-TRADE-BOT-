@@ -109,6 +109,7 @@ export default function TradesScreen() {
   }, [positions]);
 
   // Order execution handler (accepts direct action to avoid state lag)
+    // Instant execution on click — zero confirmation dialog delay
   const handleExecuteOrder = async (action: 'BUY' | 'SELL') => {
     setOrderType(action);
     const lot = parseFloat(lotSize);
@@ -117,38 +118,25 @@ export default function TradesScreen() {
       return;
     }
 
-    Alert.alert(
-      `Confirm ${action} Order`,
-      `${action} ${lot.toFixed(2)} lots of ${selectedSymbol} at market price?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Confirm & Execute',
-          style: action === 'BUY' ? 'default' : 'destructive',
-          onPress: async () => {
-            setSubmitting(true);
-            try {
-              const res = await executeOrder({
-                symbol: selectedSymbol,
-                action: action,
-                lot_size: lot,
-              });
+    setSubmitting(true);
+    try {
+      const res = await executeOrder({
+        symbol: selectedSymbol,
+        action: action,
+        lot_size: lot,
+      });
 
-              if (res && (res.status === 'EXECUTED' || res.order_sent)) {
-                Alert.alert('Order Dispatched', res.reason || 'Order submitted to execution pipeline.');
-                fetchAllData();
-              } else {
-                Alert.alert('Execution Gate', res?.reason || 'Order blocked by safety checks.');
-              }
-            } catch (err: any) {
-              Alert.alert('Order Failed', err?.message || 'Network request failed.');
-            } finally {
-              setSubmitting(false);
-            }
-          },
-        },
-      ]
-    );
+      if (res && (res.status === 'EXECUTED' || res.order_sent)) {
+        Alert.alert('Order Dispatched', res.reason || 'Order submitted to execution pipeline.');
+        fetchAllData();
+      } else {
+        Alert.alert('Execution Gate', res?.reason || 'Order blocked by safety checks.');
+      }
+    } catch (err: any) {
+      Alert.alert('Order Failed', err?.message || 'Network request failed.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   // Close single position handler

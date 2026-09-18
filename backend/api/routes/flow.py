@@ -22,20 +22,22 @@ _flow_cache: Dict[str, Dict[str, Any]] = {}
 _CACHE_TTL = 15  # 15s cache to balance real-time updates and engine load
 
 SYMBOL_ALIASES = {
-    "NASDAQ": ["NASDAQ", "USTEC", "NAS100", "US100", "NDX", "USTECH", "US100m", "NAS100m", "USTECm"],
-    "XAUUSD": ["XAUUSD", "GOLD", "XAUUSDm", "GOLDm"],
-    "XAGUSD": ["XAGUSD", "SILVER", "XAGUSDm", "SILVERm"],
-    "EURUSD": ["EURUSD", "EURUSDm", "EURUSD."],
-    "GBPUSD": ["GBPUSD", "GBPUSDm", "GBPUSD."],
-    "USDJPY": ["USDJPY", "USDJPYm", "USDJPY."],
+    "NASDAQ": ["USTECm", "USTEC", "NAS100m", "NAS100", "US100m", "US100", "NASDAQ100", "NDX", "NASDAQ"],
+    "XAUUSD": ["XAUUSDm", "XAUUSD", "GOLDm", "GOLD"],
+    "XAGUSD": ["XAGUSDm", "XAGUSD", "SILVERm", "SILVER"],
+    "EURUSD": ["EURUSDm", "EURUSD", "EURUSD."],
+    "GBPUSD": ["GBPUSDm", "GBPUSD", "GBPUSD."],
+    "USDJPY": ["USDJPYm", "USDJPY", "USDJPY."],
 }
 
 
 def _resolve_symbol(sym: str) -> str:
     import MetaTrader5 as mt5
-    candidates = SYMBOL_ALIASES.get(sym, [sym])
+    candidates = SYMBOL_ALIASES.get(sym.upper(), [sym])
     for c in candidates:
         try:
+            # Enable the symbol in MT5 Market Watch first
+            mt5.symbol_select(c, True)
             info = mt5.symbol_info(c)
             if info is not None:
                 return c
