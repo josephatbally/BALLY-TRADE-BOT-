@@ -3,7 +3,7 @@ import React from 'react';
 import {NavigationContainer} from '@react-navigation/native';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 
-import LoginScreen from '../screens/LoginScreenProviderOtp';
+import LoginScreen from '../screens/LoginScreen';
 import BrokerSetupScreen from '../screens/BrokerSetupScreen';
 import {useTheme} from '../theme/ThemeContext';
 import MainTabNavigator from './MainTabNavigator';

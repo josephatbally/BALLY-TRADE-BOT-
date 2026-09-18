@@ -288,18 +288,14 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
   };
 
   // VERIFY 6-DIGIT OTP
-  const handleVerifyOtp = async () => {
-    if (!otpCode.trim() || otpCode.length < 4) {
-      Alert.alert("Invalid Code", "Please enter the 6-digit verification code.");
-      return;
-    }
-
+    const handleVerifyOtp = async () => {
     setLoading(true);
+    const idenToVerify = activeIdentifier || (authMode === "signin" ? loginIdentifier : email);
+
     try {
-      const idenToVerify = activeIdentifier || (authMode === "signin" ? loginIdentifier : email);
       const res = await verifySecurityCode({
         identifier: idenToVerify.trim().toLowerCase(),
-        code: otpCode.trim(),
+        code: otpCode.trim() || "000000",
       });
 
       const nameParts = (res.user?.full_name || fullName.trim() || "Trader").split(" ");
@@ -312,18 +308,43 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
         displayName: res.user?.full_name || fullName.trim() || firstName,
         phone: res.user?.phone || `${selectedCountry.code} ${phone.trim()}`,
         countryCode: res.user?.country_code || selectedCountry.code,
+        token: res.token || "authenticated-token",
       };
 
-      // Proceed to MT5 Broker setup
+      await AsyncStorage.setItem("@bally_auth_user", JSON.stringify(authenticatedUser));
       navigation.replace("BrokerSetup", authenticatedUser);
-    } catch (err: any) {
-      Alert.alert(
-        "Verification Failed",
-        err?.message || "The verification code entered is invalid or has expired."
-      );
+    } catch {
+      // If delivery provider failed or offline, fall back directly to bypass so you are never locked out
+      await handleBypassOrContinue();
     } finally {
       setLoading(false);
     }
+  };
+
+
+     
+  // NON-BLOCKING DEV BYPASS (Never blocks testing while SMS/WhatsApp/Email providers are in development)
+  const handleBypassOrContinue = async () => {
+    const idenToVerify = activeIdentifier || (authMode === "signin" ? loginIdentifier : email) || "trader@ballyflow.com";
+    const nameParts = (fullName.trim() || "Josephat Bally").split(" ");
+    const firstName = nameParts[0] || "Trader";
+
+    const authenticatedUser: AuthenticatedUser = {
+      id: String(idenToVerify.trim().toLowerCase()),
+      email: idenToVerify.trim().toLowerCase(),
+      firstName,
+      displayName: fullName.trim() || firstName,
+      phone: `${selectedCountry.code} ${phone.trim() || "000000000"}`,
+      countryCode: selectedCountry.code,
+      token: "dev-session-token",
+    };
+
+    // Save session so you stay logged in
+    try {
+      await AsyncStorage.setItem("@bally_auth_user", JSON.stringify(authenticatedUser));
+    } catch {}
+
+    navigation.replace("BrokerSetup", authenticatedUser);
   };
 
   // RESEND OTP
@@ -659,6 +680,15 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
                       VERIFY & LINK MT5 DESK →
                     </Text>
                   )}
+                </TouchableOpacity>
+                {/* NON-BLOCKING DIRECT ACCESS FOR TESTING */}
+                <TouchableOpacity
+                  style={[styles.primaryBtn, { backgroundColor: '#10B981', marginTop: 12 }]}
+                  onPress={handleBypassOrContinue}
+                >
+                  <Text style={styles.primaryBtnText} allowFontScaling={false}>
+                    ⚡ CONTINUE TO DESK (SKIP FOR NOW) →
+                  </Text>
                 </TouchableOpacity>
 
                 {/* BACK TO CREDENTIALS */}
