@@ -7,12 +7,11 @@ from __future__ import annotations
 import time
 import asyncio
 from typing import Dict, Any, List
-from fastapi import APIRouter
+from fastapi import APIRouter  # type: ignore[import-not-found]
 
-from backend.trading_engine.engine import SUPPORTED_MARKETS, analyze_market
+from backend.trading_engine.engine import analyze_market
 from backend.trading_engine.market_data.mt5_connection import (
     is_mt5_connected,
-    get_symbol_tick,
     get_positions,
 )
 
@@ -32,7 +31,7 @@ SYMBOL_ALIASES = {
 
 
 def _resolve_symbol(sym: str) -> str:
-    import MetaTrader5 as mt5
+    import MetaTrader5 as mt5  # type: ignore[import-not-found]
     candidates = SYMBOL_ALIASES.get(sym.upper(), [sym])
     for c in candidates:
         try:
@@ -47,7 +46,7 @@ def _resolve_symbol(sym: str) -> str:
 
 
 def _fetch_candles(actual_sym: str, timeframe: int, count: int = 15) -> List[Dict[str, Any]]:
-    import MetaTrader5 as mt5
+    import MetaTrader5 as mt5  # type: ignore[import-not-found]
     candles = []
     try:
         rates = mt5.copy_rates_from_pos(actual_sym, timeframe, 0, count)
@@ -68,7 +67,7 @@ def _fetch_candles(actual_sym: str, timeframe: int, count: int = 15) -> List[Dic
 
 @router.get("/{symbol}")
 async def get_symbol_flow(symbol: str) -> Dict[str, Any]:
-    import MetaTrader5 as mt5
+    import MetaTrader5 as mt5  # type: ignore[import-not-found]
 
     clean_sym = symbol.upper().strip()
     now = time.time()
