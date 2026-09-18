@@ -53,22 +53,15 @@ export type ScannerInfo = {
 
   execution: boolean;
 };
-
 export type ApplicationStatusResponse = {
   status: string;
-
   application: string;
-
   version: string;
-
   running: boolean;
-
   mode: TradingMode;
-
   technical_enabled: boolean;
-
   hybrid_enabled: boolean;
-
+  auto_trading_enabled?: boolean; // Add this line
   scanner: ScannerInfo;
 };
 

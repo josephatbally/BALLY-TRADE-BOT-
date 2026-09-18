@@ -14,8 +14,10 @@ export type AuthenticatedUser = {
   displayName: string;
   phone?: string;
   countryCode?: string;
+  token?: string; // Add this line
   broker?: BrokerCredentials;
 };
+
 
 export type FlowSymbol =
   | "XAUUSD"
