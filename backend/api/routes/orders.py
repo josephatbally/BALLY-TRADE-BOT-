@@ -1,10 +1,11 @@
-from backend.notifications.telegram_alerts import notify_order_executed, notify_position_closed
 """
 BALLY FLOW API - Orders and Execution Router (Phase 2 & 3 Protected)
 Authenticated execution is bound to the tenant's active DB-3 trading account.
 MT5 remains the source of truth for live execution/account state.
 """
 from __future__ import annotations
+
+from backend.notifications.telegram_alerts import notify_order_executed, notify_position_closed
 
 import logging
 from typing import Any, Dict
