@@ -23,6 +23,37 @@ load_local_env()
 from backend.security.jwt_auth import create_access_token, get_current_user, get_current_user_optional
 from backend.trading_engine.trading_account_persistence import create_trading_account, get_active_trading_account
 
+
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+def _send_gmail_otp(to_email: str, code: str) -> bool:
+    smtp_user = os.getenv("SMTP_USER", "").strip()
+    smtp_pass = os.getenv("SMTP_PASS", "").strip()
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
+    smtp_port = int(os.getenv("SMTP_PORT", "587").strip() or 587)
+    smtp_from = os.getenv("SMTP_FROM", smtp_user).strip()
+
+    if not smtp_user or not smtp_pass:
+        print(f"[BALLY FLOW OTP] Dev OTP for {to_email} is: {code}")
+        return False
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"Your BALLY FLOW Verification Code: {code}"
+        msg["From"] = f"BALLY FLOW <{smtp_from}>"
+        msg["To"] = to_email
+        msg.attach(MIMEText(f"Your BALLY FLOW verification code is: {code}", "plain"))
+        server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
+        server.starttls()
+        server.login(smtp_user, smtp_pass)
+        server.sendmail(smtp_from, [to_email], msg.as_string())
+        server.quit()
+        return True
+    except Exception as err:
+        print(f"[BALLY FLOW OTP] SMTP error: {err}")
+        return False
+
 router = APIRouter()
 OTP_TTL_SECONDS = 600
 OTP_RESEND_SECONDS = 30

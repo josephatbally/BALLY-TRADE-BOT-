@@ -127,3 +127,23 @@ def update_bot_settings(request: BotSettingsRequest, current_user: Dict[str, Any
         "status": "OK",
         "settings": updated,
     }
+
+
+from pydantic import BaseModel
+class StrategyUpdateRequest(BaseModel):
+    strategy: str
+
+@router.get("/strategy")
+def get_bot_strategy():
+    from backend.trading_engine.auto_trader import auto_trader
+    current = getattr(auto_trader, "active_strategy", "SMC")
+    return {"status": "ok", "strategy": current}
+
+@router.put("/strategy")
+def update_bot_strategy(req: StrategyUpdateRequest):
+    from backend.trading_engine.auto_trader import auto_trader
+    strat = req.strategy.upper()
+    if strat not in ("SMC", "CANDLE_SCALPER"):
+        strat = "SMC"
+    auto_trader.active_strategy = strat
+    return {"status": "ok", "strategy": strat, "message": f"Strategy updated to {strat}"}

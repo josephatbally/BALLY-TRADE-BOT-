@@ -429,7 +429,7 @@ export default function DashboardScreen({
      */
     const interval = setInterval(() => {
       refreshBackendStatus();
-    }, 15000);
+    }, 2500);
 
     return () => {
       mountedRef.current = false;

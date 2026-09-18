@@ -1,3 +1,4 @@
+from backend.notifications.telegram_alerts import notify_order_executed, notify_position_closed
 """
 BALLY FLOW API - Orders and Execution Router (Phase 2 & 3 Protected)
 Authenticated execution is bound to the tenant's active DB-3 trading account.
@@ -233,6 +234,10 @@ def close_order(ticket: int, current_user: Dict[str, Any] = Depends(get_current_
     res = close_position(ticket=ticket)
     if not res.get("closed"):
         raise HTTPException(status_code=400, detail=res.get("reason", "Failed to close position"))
+    try:
+        notify_position_closed(ticket=ticket, symbol="", action="", profit=float(res.get("profit", 0.0) or 0.0), close_price=float(res.get("price", 0.0) or 0.0))
+    except Exception:
+        pass
     return res
 
 
