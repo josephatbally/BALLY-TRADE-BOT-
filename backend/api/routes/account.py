@@ -1,20 +1,21 @@
 """
 BALLY FLOW API - Account Routes
 
-Authenticated account presentation. SQLite identifies the tenant's configured
-trading account; MT5 remains the source of truth for live account state.
+Direct MT5 Terminal Bridge: reads live account data, equity, balance, margin,
+and positions straight from the running MetaTrader 5 terminal on the PC.
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends
 
-from backend.security.jwt_auth import get_current_user
-from backend.trading_engine.trading_account_runtime import (
-    resolve_authenticated_trading_account,
+from backend.security.jwt_auth import get_current_user_optional
+from backend.trading_engine.market_data.mt5_connection import (
+    get_account_info,
+    get_positions,
+    is_mt5_connected,
 )
-from backend.trading_engine.market_data.mt5_connection import get_positions
 
 router = APIRouter()
 
@@ -34,15 +35,11 @@ def _safe_int(value: Any, default: int = 0) -> int:
 
 
 @router.get("")
-def get_account(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-    """Return the authenticated user's configured account plus live MT5 state."""
-    resolved = resolve_authenticated_trading_account(int(user["id"]))
-    configured = resolved["configured_account"]
-    live = resolved["live_account"]
-
-    if not configured:
+def get_account(user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)) -> Dict[str, Any]:
+    """Return live account state directly from the active MT5 terminal."""
+    if not is_mt5_connected():
         return {
-            "status": "NO_ACCOUNT",
+            "status": "OFFLINE",
             "connected": False,
             "account": None,
             "broker": None,
@@ -55,36 +52,20 @@ def get_account(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, A
             "currency": "USD",
         }
 
-    if resolved["status"] != "READY":
+    info = get_account_info()
+    if info is None:
         return {
-            "status": resolved["status"],
+            "status": "ACCOUNT_UNAVAILABLE",
             "connected": False,
-            "identity_match": False,
-            "account": {
-                "id": configured["id"],
-                "trading_account_id": configured["id"],
-                "account_number": configured["account_number"],
-                "broker_server": configured["broker_server"],
-                "broker_name": configured["broker_name"],
-                "platform": configured["platform"],
-                "connection_status": configured["connection_status"],
-                "is_demo": bool(configured["is_demo"]),
-            },
-            "broker": {
-                "company": configured["broker_name"],
-                "server": configured["broker_server"],
-                "login": configured["account_number"],
-                "leverage": configured["leverage"],
-                "name": None,
-                "trade_mode": "DEMO" if configured["is_demo"] else "REAL",
-            },
+            "account": None,
+            "broker": None,
             "balance": 0.0,
             "equity": 0.0,
             "profit": 0.0,
             "margin": 0.0,
             "free_margin": 0.0,
             "open_trades": 0,
-            "currency": configured["currency"],
+            "currency": "USD",
         }
 
     try:
@@ -93,33 +74,40 @@ def get_account(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, A
     except Exception:
         open_trades_count = 0
 
+    login = getattr(info, "login", 0)
+    company = getattr(info, "company", "MetaTrader 5 Broker")
+    server = getattr(info, "server", "MT5-Server")
+    leverage = _safe_int(getattr(info, "leverage", 100))
+    trade_mode = "DEMO" if getattr(info, "trade_mode", 0) == 0 else "REAL"
+    currency = getattr(info, "currency", "USD")
+
     return {
         "status": "READY",
         "connected": True,
         "identity_match": True,
         "account": {
-            "id": configured["id"],
-            "trading_account_id": configured["id"],
-            "account_number": configured["account_number"],
-            "broker_server": configured["broker_server"],
-            "broker_name": configured["broker_name"],
-            "platform": configured["platform"],
-            "connection_status": configured["connection_status"],
-            "is_demo": bool(configured["is_demo"]),
+            "id": login,
+            "trading_account_id": login,
+            "account_number": str(login),
+            "broker_server": server,
+            "broker_name": company,
+            "platform": "MT5",
+            "connection_status": "CONNECTED",
+            "is_demo": (trade_mode == "DEMO"),
         },
         "broker": {
-            "company": getattr(live, "company", configured["broker_name"]),
-            "server": getattr(live, "server", configured["broker_server"]),
-            "login": getattr(live, "login", configured["account_number"]),
-            "leverage": _safe_int(getattr(live, "leverage", configured["leverage"])),
-            "name": getattr(live, "name", None),
-            "trade_mode": "DEMO" if configured["is_demo"] else "REAL",
+            "company": company,
+            "server": server,
+            "login": login,
+            "leverage": leverage,
+            "name": getattr(info, "name", None),
+            "trade_mode": trade_mode,
         },
-        "balance": _safe_float(getattr(live, "balance", 0.0)),
-        "equity": _safe_float(getattr(live, "equity", 0.0)),
-        "profit": _safe_float(getattr(live, "profit", 0.0)),
-        "margin": _safe_float(getattr(live, "margin", 0.0)),
-        "free_margin": _safe_float(getattr(live, "margin_free", 0.0)),
+        "balance": _safe_float(getattr(info, "balance", 0.0)),
+        "equity": _safe_float(getattr(info, "equity", 0.0)),
+        "profit": _safe_float(getattr(info, "profit", 0.0)),
+        "margin": _safe_float(getattr(info, "margin", 0.0)),
+        "free_margin": _safe_float(getattr(info, "margin_free", 0.0)),
         "open_trades": open_trades_count,
-        "currency": getattr(live, "currency", configured["currency"]),
+        "currency": currency,
     }

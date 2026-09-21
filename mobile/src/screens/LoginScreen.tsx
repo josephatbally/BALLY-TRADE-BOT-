@@ -312,7 +312,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
       };
 
       await AsyncStorage.setItem("@bally_auth_user", JSON.stringify(authenticatedUser));
-      navigation.replace("BrokerSetup", authenticatedUser);
+      navigation.replace("MainTabs", authenticatedUser);
     } catch {
       // If delivery provider failed or offline, fall back directly to bypass so you are never locked out
       await handleBypassOrContinue();
@@ -344,7 +344,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
       await AsyncStorage.setItem("@bally_auth_user", JSON.stringify(authenticatedUser));
     } catch {}
 
-    navigation.replace("BrokerSetup", authenticatedUser);
+    navigation.replace("MainTabs", authenticatedUser);
   };
 
   // RESEND OTP
