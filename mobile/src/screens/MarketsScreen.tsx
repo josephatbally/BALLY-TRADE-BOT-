@@ -122,7 +122,7 @@ export default function MarketsScreen({ navigation }: any) {
         setScannerStatus(scanRes.value);
       }
     } catch {
-      // Retain existing telemetry
+      // Keep existing data
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -147,7 +147,6 @@ export default function MarketsScreen({ navigation }: any) {
     <View style={styles.root}>
       <StatusBar barStyle="light-content" />
 
-      {/* Futuristic ambient background glows */}
       <View style={styles.glowTop} />
       <View style={styles.glowBottom} />
 
@@ -241,7 +240,7 @@ export default function MarketsScreen({ navigation }: any) {
                   allowFontScaling={false}
                   style={[styles.filterPillText, active && styles.filterPillTextActive]}
                 >
-                  {filter === 'HOT' ? 'âš¡ HOT SETUPS' : filter}
+                  {filter === 'HOT' ? '🔥 HOT SETUPS' : filter}
                 </Text>
               </Pressable>
             );
@@ -263,7 +262,6 @@ export default function MarketsScreen({ navigation }: any) {
 
             return (
               <View key={market.symbol} style={styles.marketCard}>
-                {/* CARD TOP ROW: Symbol, Category, Live Price & Change */}
                 <View style={styles.cardHeader}>
                   <View>
                     <View style={styles.symbolBadgeRow}>
@@ -382,7 +380,7 @@ export default function MarketsScreen({ navigation }: any) {
                     style={({ pressed }) => [styles.actionBtnSecondary, pressed && styles.pressed]}
                   >
                     <Text allowFontScaling={false} style={styles.actionBtnSecondaryText}>
-                       EXECUTE
+                      EXECUTE
                     </Text>
                   </Pressable>
 
@@ -391,7 +389,7 @@ export default function MarketsScreen({ navigation }: any) {
                     style={({ pressed }) => [styles.actionBtnPrimary, pressed && styles.pressed]}
                   >
                     <Text allowFontScaling={false} style={styles.actionBtnPrimaryText}>
-                      OPEN IN FLOW 
+                      OPEN IN FLOW
                     </Text>
                   </Pressable>
                 </View>

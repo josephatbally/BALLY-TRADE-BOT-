@@ -1,12 +1,10 @@
-from backend.trading_engine.modes.mode_controller import get_mode_controller, TradingMode
+﻿from backend.trading_engine.modes.mode_controller import get_mode_controller, TradingMode
 from backend.trading_engine.hybrid.hybrid_engine import analyze_hybrid_market
 from backend.trading_engine.ai.ai_engine import ai_engine
-"""
-BALLY FLOW - High-Speed Intelligent Auto-Trading Engine
-Parallel Async Market Scanner, Conviction-Weighted Dynamic Sizing,
-and Microstructure Trade Management.
-"""
-
+from backend.trading_engine.candle_scalper.candle_scalper import (
+    analyze_candle_momentum,
+    get_tiered_lot_size,
+)
 import asyncio
 import logging
 from datetime import datetime
@@ -50,13 +48,6 @@ def calculate_dynamic_lot(
     base_risk_pct: float = 1.0,
     max_risk_pct: float = 2.5,
 ) -> float:
-    """
-    Intelligent Dynamic Lot Calculation based on Setup Conviction Tier:
-    - A+ Institutional Setup (Confidence >= 80%): Scales risk up to 2.5%
-    - Standard High-Probability Setup (Confidence 70-79%): 1.5% risk
-    - Baseline Setup (Confidence 65-69%): 1.0% risk
-    Calculates exact lot size from monetary risk, tick value, and stop-loss distance.
-    """
     if confidence >= 80.0:
         target_risk_pct = max_risk_pct
     elif confidence >= 72.0:
@@ -91,7 +82,7 @@ class AutoTrader:
         self.enabled: bool = False
         self.running: bool = False
         self._task: Optional[asyncio.Task] = None
-        self.scan_interval: int = 5  # High-speed 5-second parallel scanning interval
+        self.scan_interval: int = 5
         self.min_confidence: float = 65.0
         self.max_positions: int = 3
         self.risk_pct: float = 1.0
@@ -104,6 +95,7 @@ class AutoTrader:
         self.last_analysis_summary: Dict[str, Any] = {}
         self.logs: List[Dict[str, Any]] = []
         self.owner_user_id: Optional[int] = None
+        self.active_strategy: str = "SMC"
 
     def _add_log(self, level: str, message: str, details: Any = None):
         entry = {
@@ -115,6 +107,13 @@ class AutoTrader:
         self.logs.insert(0, entry)
         if len(self.logs) > 30:
             self.logs.pop()
+
+    def set_strategy(self, strategy: str):
+        self.active_strategy = str(strategy).upper()
+        self._add_log("INFO", f"Active strategy changed to {self.active_strategy}")
+
+    def get_strategy(self) -> str:
+        return getattr(self, "active_strategy", "SMC")
 
     def start(self):
         if not self.running or self._task is None or self._task.done():
@@ -157,6 +156,7 @@ class AutoTrader:
             "enabled": self.enabled,
             "owner_user_id": self.owner_user_id,
             "running": self.running,
+            "active_strategy": self.active_strategy,
             "mt5_connected": is_mt5_connected(),
             "scan_interval": self.scan_interval,
             "min_confidence": self.min_confidence,
@@ -173,7 +173,6 @@ class AutoTrader:
         }
 
     async def _manage_positions(self):
-        """Active risk and profit manager: closes at targets and cuts losses early."""
         if not self.auto_manage_exits or not is_mt5_connected():
             return
         positions = tenant_router.filter_user_positions(self.owner_user_id, get_positions() or [])
@@ -199,19 +198,79 @@ class AutoTrader:
         account: Any,
         current_count: int,
     ) -> bool:
-        """Evaluates a single market asynchronously and submits trade if high-probability criteria are met."""
         if symbol in open_symbols:
             return False
 
+        # --- 1. CANDLE SCALPER BRANCH ---
+        active_strategy = getattr(self, "active_strategy", "SMC").upper()
+        if active_strategy == "CANDLE_SCALPER":
+            try:
+                scalp_res = await asyncio.to_thread(analyze_candle_momentum, symbol)
+                signal = scalp_res.get("signal", "HOLD")
+                confidence = float(scalp_res.get("confidence", 0.0))
+                self.last_analysis_summary[symbol] = {
+                    "action": signal,
+                    "confidence": confidence,
+                    "strategy": "CANDLE_SCALPER",
+                }
+                if signal not in ["BUY", "SELL"] or confidence < 70.0:
+                    return False
+
+                tick = get_symbol_tick(symbol)
+                if not tick:
+                    return False
+
+                bid = float(getattr(tick, "bid", 0.0) or (tick.get("bid", 0.0) if isinstance(tick, dict) else 0.0))
+                ask = float(getattr(tick, "ask", 0.0) or (tick.get("ask", 0.0) if isinstance(tick, dict) else 0.0))
+                price = ask if signal == "BUY" else bid
+
+                sym_info = get_symbol_info(symbol)
+                point = float(getattr(sym_info, "point", 0.0001) or 0.0001)
+                digits = int(getattr(sym_info, "digits", 5) or 5)
+
+                stop_dist = max(150.0 * point, 0.0015)
+                sl = round(price - stop_dist if signal == "BUY" else price + stop_dist, digits)
+                tp = round(price + (stop_dist * 2.0) if signal == "BUY" else price - (stop_dist * 2.0), digits)
+
+                balance = float(getattr(account, "balance", 0.0) if not isinstance(account, dict) else account.get("balance", 0.0))
+                tiered_lot = get_tiered_lot_size(balance)
+                burst_count = int(scalp_res.get("burst_count", 3))
+
+                self._add_log("INFO", f"[CANDLE SCALPER] Firing {burst_count}x {signal} burst ({tiered_lot} lots each) on {symbol}")
+
+                for i in range(burst_count):
+                    order_payload = {
+                        "symbol": symbol,
+                        "action": signal,
+                        "decision": signal,
+                        "signal": signal,
+                        "volume": tiered_lot,
+                        "price": price,
+                        "entry": price,
+                        "stop_loss": sl,
+                        "take_profit": tp,
+                        "comment": f"Bally Scalp #{i+1}",
+                    }
+                    gate_payload = {"gate": "PASS", "allowed": True}
+                    await asyncio.to_thread(
+                        execute_live_trade,
+                        order=order_payload,
+                        gate=gate_payload,
+                    )
+                    await asyncio.sleep(0.15)
+                return True
+            except Exception as e:
+                self._add_log("WARNING", f"Candle Scalper error on {symbol}: {e}")
+                return False
+
+        # --- 2. SMC & HYBRID ENGINE BRANCH ---
         try:
-            # Run market analysis in background thread so scanner loop never blocks
             analysis = await asyncio.to_thread(analyze_market, symbol)
             decision_val = analysis.get("decision", "NO_TRADE") if isinstance(analysis, dict) else "NO_TRADE"
             action = decision_val.get("action", "NO_TRADE") if isinstance(decision_val, dict) else str(decision_val).upper()
             confidence_val = analysis.get("confidence", 0.0) if isinstance(analysis, dict) else 0.0
             confidence = confidence_val.get("score", 0.0) if isinstance(confidence_val, dict) else float(confidence_val or 0.0)
             
-            # Check active operating mode: TECHNICAL vs HYBRID
             mode_ctrl = get_mode_controller()
             active_mode = mode_ctrl.mode.value
             fundamental_info = {}
@@ -237,7 +296,6 @@ class AutoTrader:
                     }
                     return False
 
-            # AI Continuous Market Learning & Structural Adaptation
             ai_study = ai_engine.study_market(symbol=symbol, timeframe="M15", candles=[], technical_analysis=analysis if isinstance(analysis, dict) else {})
             multiplier = ai_study.get("multiplier", 1.0)
             adjusted_confidence = min(99.0, confidence * multiplier)
@@ -286,7 +344,6 @@ class AutoTrader:
             bal = float(getattr(account, "balance", 100.0) if not isinstance(account, dict) else account.get("balance", 100.0) or 100.0)
             eq = float(getattr(account, "equity", bal) if not isinstance(account, dict) else account.get("equity", bal) or bal)
 
-            # Calculate intelligent conviction-based volume
             calculated_lot = calculate_dynamic_lot(
                 symbol=symbol,
                 confidence=confidence,
@@ -385,7 +442,6 @@ class AutoTrader:
                         }
                         account = get_account_info() or {}
 
-                        # Parallel evaluation across all supported markets concurrently
                         tasks = [
                             self._evaluate_and_execute_symbol(sym, open_symbols, account, open_count)
                             for sym in SUPPORTED_MARKETS

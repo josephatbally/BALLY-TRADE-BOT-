@@ -15,6 +15,7 @@ from backend.trading_engine.market_data.mt5_connection import (
     get_account_info,
     get_positions,
     is_mt5_connected,
+    initialize_mt5,
 )
 
 router = APIRouter()
@@ -34,9 +35,14 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+
 @router.get("")
 def get_account(user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)) -> Dict[str, Any]:
     """Return live account state directly from the active MT5 terminal."""
+    if not is_mt5_connected():
+        # Connect to the running desktop MT5 terminal automatically
+        initialize_mt5()
+
     if not is_mt5_connected():
         return {
             "status": "OFFLINE",
