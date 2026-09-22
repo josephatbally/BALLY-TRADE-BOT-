@@ -196,9 +196,11 @@ class AutoTrader:
         }
 
     async def _manage_candle_scalper_bursts(self, positions):
-        """Manage Candle Momentum positions as one burst."""
-        groups = {}
-
+        """Manage Candle Momentum positions independently per leg.
+        
+        Closes individual legs when their floating profit reaches >= $2.50.
+        Does not close unaffected legs in the group.
+        """
         for pos in positions:
             comment = (
                 pos.get("comment", "")
@@ -209,87 +211,31 @@ class AutoTrader:
             if not parsed:
                 continue
 
+            profit = float(
+                pos.get("profit", 0.0)
+                if isinstance(pos, dict)
+                else getattr(pos, "profit", 0.0)
+            )
+            ticket = (
+                pos.get("ticket")
+                if isinstance(pos, dict)
+                else getattr(pos, "ticket", None)
+            )
             symbol = (
                 pos.get("symbol", "")
                 if isinstance(pos, dict)
                 else getattr(pos, "symbol", "")
             )
-            key = (str(symbol).upper(), parsed["direction"])
-            groups.setdefault(key, []).append((pos, parsed))
+            direction = parsed.get("direction", "")
 
-        for (symbol, direction), members in groups.items():
-            total_profit = sum(
-                float(
-                    item[0].get("profit", 0.0)
-                    if isinstance(item[0], dict)
-                    else getattr(item[0], "profit", 0.0)
-                )
-                for item in members
-            )
-            movement_target = max(
-                float(item[1]["candle_move_target"])
-                for item in members
-            )
-
-            movement = await asyncio.to_thread(
-                current_candle_movement,
-                symbol,
-                direction,
-            )
-            movement_reached = bool(
-                movement.get("ready")
-                and float(movement.get("movement", 0.0)) >= movement_target
-            )
-
-            profit_target = DEFAULT_PROFIT_TARGET_USD
-            if total_profit < profit_target and not movement_reached:
-                continue
-
-            reason = (
-                f"maximum burst profit reached (+${total_profit:.2f})"
-                if total_profit >= profit_target
-                else (
-                    "M1 candle movement target reached "
-                    f"({float(movement.get('movement', 0.0)):.6f})"
-                )
-            )
-
-            self._add_log(
-                "SUCCESS",
-                f"[CANDLE SCALPER] Closing {len(members)}x {direction} "
-                f"{symbol}: {reason}",
-            )
-
-            for pos, _parsed in members:
-                ticket = (
-                    pos.get("ticket")
-                    if isinstance(pos, dict)
-                    else getattr(pos, "ticket", None)
-                )
-                if ticket is None:
-                    continue
-
-                close_result = await asyncio.to_thread(
-                    close_position,
-                    int(ticket),
-                )
-
-                if isinstance(close_result, dict) and close_result.get("status") in (
-                    "EXECUTED",
+            # Strict individual leg exit: each leg must hit >= $2.50
+            if profit >= DEFAULT_PROFIT_TARGET_USD and ticket is not None:
+                self._add_log(
                     "SUCCESS",
-                    "CLOSED",
-                    "OK",
-                ):
-                    profit = (
-                        float(pos.get("profit", 0.0))
-                        if isinstance(pos, dict)
-                        else float(getattr(pos, "profit", 0.0))
-                    )
-                    self._add_log(
-                        "SUCCESS",
-                        f"[CANDLE SCALPER] Closed #{ticket} "
-                        f"{symbol} P/L ${profit:.2f}",
-                    )
+                    f"[CANDLE SCALPER] Leg profit hit: {symbol} (#{ticket}) {direction} "
+                    f"+${profit:.2f} >= ${DEFAULT_PROFIT_TARGET_USD:.2f} -> Closing leg",
+                )
+                close_position(ticket)
 
     async def _manage_positions(self):
         if not self.auto_manage_exits or not is_mt5_connected():
@@ -369,13 +315,26 @@ class AutoTrader:
         account: Any,
         current_count: int,
     ) -> bool:
-        if symbol in open_symbols:
+        active_strategy = getattr(self, "active_strategy", "SMC").upper()
+        if active_strategy != "CANDLE_SCALPER" and symbol in open_symbols:
             return False
 
         # --- 1. CANDLE MOMENTUM SCALPER BRANCH ---
         # Independent from SMC, Hybrid and AI.
-        active_strategy = getattr(self, "active_strategy", "SMC").upper()
         if active_strategy == "CANDLE_SCALPER":
+            all_positions = get_positions() or []
+            active_cs_legs = [
+                p for p in all_positions
+                if (p.get("symbol") if isinstance(p, dict) else getattr(p, "symbol", "")) == symbol
+                and parse_candle_position_comment(
+                    p.get("comment", "") if isinstance(p, dict) else getattr(p, "comment", "")
+                )
+            ]
+            current_cs_count = len(active_cs_legs)
+            slots_needed = max(0, DEFAULT_BURST_COUNT - current_cs_count)
+
+            if slots_needed <= 0:
+                return False
             try:
                 scalp_res = await asyncio.to_thread(analyze_candle_momentum, symbol)
                 signal = str(scalp_res.get("signal", "HOLD")).upper()
@@ -394,7 +353,7 @@ class AutoTrader:
                 if signal not in ("BUY", "SELL") or confidence < MIN_CONFIDENCE:
                     return False
 
-                burst_count = max(1, int(scalp_res.get("burst_count", 3)))
+                burst_count = slots_needed
                 if current_count + burst_count > self.max_positions:
                     self._add_log(
                         "INFO",
