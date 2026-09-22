@@ -162,12 +162,17 @@ class TenantRouter:
         if not user_tickets:
             return []
 
-        return [
-            pos
-            for pos in live_positions
-            if pos.get("ticket") in user_tickets
-            or str(pos.get("ticket")) in user_tickets
-        ]
+        filtered = []
+        for pos in live_positions:
+            ticket = (
+                pos.get("ticket")
+                if isinstance(pos, dict)
+                else getattr(pos, "ticket", None)
+            )
+            if ticket in user_tickets or str(ticket) in user_tickets:
+                filtered.append(pos)
+
+        return filtered
 
 
 tenant_router = TenantRouter()
