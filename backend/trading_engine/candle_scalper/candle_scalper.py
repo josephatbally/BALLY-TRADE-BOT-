@@ -182,6 +182,51 @@ def analyze_candle_momentum(
     }
 
 
+def current_candle_movement(
+    symbol: str,
+    direction: str,
+) -> Dict[str, Any]:
+    """
+    Return the favorable movement of the currently forming M1 candle.
+
+    BUY  -> current close - current open
+    SELL -> current open - current close
+
+    This is used only by the burst manager for the strategy's exit
+    condition; it does not make a new entry decision.
+    """
+    rates = mt5.copy_rates_from_pos(symbol, TIMEFRAME, 0, 1)
+
+    if rates is None or len(rates) < 1:
+        return {
+            "ready": False,
+            "movement": 0.0,
+            "reason": "current M1 candle unavailable",
+        }
+
+    metrics = _candle_metrics(rates[-1])
+    direction = str(direction).upper()
+
+    if direction == "BUY":
+        movement = metrics["close"] - metrics["open"]
+    elif direction == "SELL":
+        movement = metrics["open"] - metrics["close"]
+    else:
+        return {
+            "ready": False,
+            "movement": 0.0,
+            "reason": "invalid direction",
+        }
+
+    return {
+        "ready": True,
+        "movement": max(0.0, float(movement)),
+        "direction": direction,
+        "open": metrics["open"],
+        "close": metrics["close"],
+    }
+
+
 def candle_position_comment(signal: str, candle_move_target: float) -> str:
     """
     Produce a short broker-safe comment carrying the movement target.
