@@ -3,7 +3,10 @@ from backend.trading_engine.hybrid.hybrid_engine import analyze_hybrid_market
 from backend.trading_engine.ai.ai_engine import ai_engine
 from backend.trading_engine.candle_scalper.candle_scalper import (
     analyze_candle_momentum,
+    candle_position_comment,
+    current_candle_movement,
     get_tiered_lot_size,
+    parse_candle_position_comment,
 )
 import asyncio
 import logging
@@ -19,7 +22,11 @@ from backend.trading_engine.market_data.mt5_connection import (
     get_symbol_info,
 )
 from backend.trading_engine.execution.execution_pipeline import execute_trade_pipeline
-from backend.trading_engine.execution.live_executor import close_position, execute_live_trade
+from backend.trading_engine.execution.live_executor import (
+    close_position,
+    execute_live_trade,
+    set_live_execution_enabled,
+)
 from backend.trading_engine.tenant_router import tenant_router
 from backend.trading_engine.trading_account_runtime import resolve_authenticated_trading_account
 
@@ -129,6 +136,10 @@ class AutoTrader:
     def stop(self):
         self.enabled = False
         self.running = False
+        try:
+            set_live_execution_enabled(False)
+        except Exception as exc:
+            logger.error("Unable to disable live executor: %s", exc)
         if self._task and not self._task.done():
             self._task.cancel()
         self._add_log("WARNING", "Auto-trading daemon stopped")
@@ -142,6 +153,16 @@ class AutoTrader:
             raise ValueError("Authenticated user ownership is required to enable auto-trading.")
         self.owner_user_id = int(user_id) if val and user_id is not None else None
         self.enabled = bool(val)
+
+        try:
+            set_live_execution_enabled(self.enabled)
+        except Exception as exc:
+            self.enabled = False
+            self.owner_user_id = None
+            raise RuntimeError(
+                f"Unable to synchronize live execution state: {exc}"
+            ) from exc
+
         if self.enabled:
             return bool(self.start())
         return bool(self.stop())
@@ -172,23 +193,170 @@ class AutoTrader:
             "last_analysis_summary": self.last_analysis_summary,
         }
 
+    async def _manage_candle_scalper_bursts(self, positions):
+        """Manage Candle Momentum positions as one burst."""
+        groups = {}
+
+        for pos in positions:
+            comment = (
+                pos.get("comment", "")
+                if isinstance(pos, dict)
+                else getattr(pos, "comment", "")
+            )
+            parsed = parse_candle_position_comment(comment)
+            if not parsed:
+                continue
+
+            symbol = (
+                pos.get("symbol", "")
+                if isinstance(pos, dict)
+                else getattr(pos, "symbol", "")
+            )
+            key = (str(symbol).upper(), parsed["direction"])
+            groups.setdefault(key, []).append((pos, parsed))
+
+        for (symbol, direction), members in groups.items():
+            total_profit = sum(
+                float(
+                    item[0].get("profit", 0.0)
+                    if isinstance(item[0], dict)
+                    else getattr(item[0], "profit", 0.0)
+                )
+                for item in members
+            )
+            movement_target = max(
+                float(item[1]["candle_move_target"])
+                for item in members
+            )
+
+            movement = await asyncio.to_thread(
+                current_candle_movement,
+                symbol,
+                direction,
+            )
+            movement_reached = bool(
+                movement.get("ready")
+                and float(movement.get("movement", 0.0)) >= movement_target
+            )
+
+            profit_target = 2.50
+            if total_profit < profit_target and not movement_reached:
+                continue
+
+            reason = (
+                f"maximum burst profit reached (+\${total_profit:.2f})"
+                if total_profit >= profit_target
+                else (
+                    "M1 candle movement target reached "
+                    f"({float(movement.get('movement', 0.0)):.6f})"
+                )
+            )
+
+            self._add_log(
+                "SUCCESS",
+                f"[CANDLE SCALPER] Closing {len(members)}x {direction} "
+                f"{symbol}: {reason}",
+            )
+
+            for pos, _parsed in members:
+                ticket = (
+                    pos.get("ticket")
+                    if isinstance(pos, dict)
+                    else getattr(pos, "ticket", None)
+                )
+                if ticket is None:
+                    continue
+
+                close_result = await asyncio.to_thread(
+                    close_position,
+                    int(ticket),
+                )
+
+                if isinstance(close_result, dict) and close_result.get("status") in (
+                    "EXECUTED",
+                    "SUCCESS",
+                    "CLOSED",
+                ):
+                    profit = (
+                        float(pos.get("profit", 0.0))
+                        if isinstance(pos, dict)
+                        else float(getattr(pos, "profit", 0.0))
+                    )
+                    self._add_log(
+                        "SUCCESS",
+                        f"[CANDLE SCALPER] Closed #{ticket} "
+                        f"{symbol} P/L \${profit:.2f}",
+                    )
+
     async def _manage_positions(self):
         if not self.auto_manage_exits or not is_mt5_connected():
             return
-        positions = tenant_router.filter_user_positions(self.owner_user_id, get_positions() or [])
+
+        positions = tenant_router.filter_user_positions(
+            self.owner_user_id,
+            get_positions() or [],
+        )
+
+        await self._manage_candle_scalper_bursts(positions)
+
         for pos in positions:
-            ticket = pos.get("ticket") if isinstance(pos, dict) else getattr(pos, "ticket", None)
-            profit = pos.get("profit") if isinstance(pos, dict) else getattr(pos, "profit", 0.0)
-            symbol = pos.get("symbol") if isinstance(pos, dict) else getattr(pos, "symbol", "")
+            comment = (
+                pos.get("comment", "")
+                if isinstance(pos, dict)
+                else getattr(pos, "comment", "")
+            )
+            if parse_candle_position_comment(comment):
+                continue
+
+            ticket = (
+                pos.get("ticket")
+                if isinstance(pos, dict)
+                else getattr(pos, "ticket", None)
+            )
+            profit = (
+                pos.get("profit")
+                if isinstance(pos, dict)
+                else getattr(pos, "profit", 0.0)
+            )
+            symbol = (
+                pos.get("symbol")
+                if isinstance(pos, dict)
+                else getattr(pos, "symbol", "")
+            )
             if ticket is None:
                 continue
+
             if profit >= self.take_profit_dollars:
-                self._add_log("SUCCESS", f"Profit Target Hit: {symbol} (#{ticket}) +${profit:.2f}")
-                ai_engine.record_trade_outcome(symbol=symbol, timeframe="M15", signal="BUY", outcome="WIN", entry_price=0.0, exit_price=0.0, pnl=profit, quality=85.0)
+                self._add_log(
+                    "SUCCESS",
+                    f"Profit Target Hit: {symbol} (#{ticket}) +\${profit:.2f}",
+                )
+                ai_engine.record_trade_outcome(
+                    symbol=symbol,
+                    timeframe="M15",
+                    signal="BUY",
+                    outcome="WIN",
+                    entry_price=0.0,
+                    exit_price=0.0,
+                    pnl=profit,
+                    quality=85.0,
+                )
                 close_position(ticket)
             elif profit <= self.stop_loss_dollars:
-                self._add_log("WARNING", f"Risk Stop Hit: {symbol} (#{ticket}) -${abs(profit):.2f}")
-                ai_engine.record_trade_outcome(symbol=symbol, timeframe="M15", signal="BUY", outcome="LOSS", entry_price=0.0, exit_price=0.0, pnl=profit, quality=40.0)
+                self._add_log(
+                    "WARNING",
+                    f"Risk Stop Hit: {symbol} (#{ticket}) -\${abs(profit):.2f}",
+                )
+                ai_engine.record_trade_outcome(
+                    symbol=symbol,
+                    timeframe="M15",
+                    signal="BUY",
+                    outcome="LOSS",
+                    entry_price=0.0,
+                    exit_price=0.0,
+                    pnl=profit,
+                    quality=40.0,
+                )
                 close_position(ticket)
 
     async def _evaluate_and_execute_symbol(
@@ -201,66 +369,151 @@ class AutoTrader:
         if symbol in open_symbols:
             return False
 
-        # --- 1. CANDLE SCALPER BRANCH ---
+        # --- 1. CANDLE MOMENTUM SCALPER BRANCH ---
+        # Independent from SMC, Hybrid and AI.
         active_strategy = getattr(self, "active_strategy", "SMC").upper()
         if active_strategy == "CANDLE_SCALPER":
             try:
                 scalp_res = await asyncio.to_thread(analyze_candle_momentum, symbol)
-                signal = scalp_res.get("signal", "HOLD")
+                signal = str(scalp_res.get("signal", "HOLD")).upper()
                 confidence = float(scalp_res.get("confidence", 0.0))
+
                 self.last_analysis_summary[symbol] = {
                     "action": signal,
                     "confidence": confidence,
                     "strategy": "CANDLE_SCALPER",
+                    "timeframe": scalp_res.get("timeframe", "M1"),
+                    "body_ratio": scalp_res.get("body_ratio"),
+                    "body_expansion": scalp_res.get("body_expansion"),
+                    "range_expansion": scalp_res.get("range_expansion"),
                 }
-                if signal not in ["BUY", "SELL"] or confidence < 70.0:
+
+                if signal not in ("BUY", "SELL") or confidence < 70.0:
+                    return False
+
+                burst_count = max(1, int(scalp_res.get("burst_count", 3)))
+                if current_count + burst_count > self.max_positions:
+                    self._add_log(
+                        "INFO",
+                        f"[CANDLE SCALPER] Burst skipped on {symbol}: "
+                        f"{burst_count} positions would exceed max_positions={self.max_positions}",
+                    )
                     return False
 
                 tick = get_symbol_tick(symbol)
                 if not tick:
                     return False
 
-                bid = float(getattr(tick, "bid", 0.0) or (tick.get("bid", 0.0) if isinstance(tick, dict) else 0.0))
-                ask = float(getattr(tick, "ask", 0.0) or (tick.get("ask", 0.0) if isinstance(tick, dict) else 0.0))
-                price = ask if signal == "BUY" else bid
+                bid = float(
+                    getattr(tick, "bid", 0.0)
+                    or (tick.get("bid", 0.0) if isinstance(tick, dict) else 0.0)
+                )
+                ask = float(
+                    getattr(tick, "ask", 0.0)
+                    or (tick.get("ask", 0.0) if isinstance(tick, dict) else 0.0)
+                )
+                if bid <= 0 or ask <= 0:
+                    return False
 
+                entry = ask if signal == "BUY" else bid
                 sym_info = get_symbol_info(symbol)
                 point = float(getattr(sym_info, "point", 0.0001) or 0.0001)
                 digits = int(getattr(sym_info, "digits", 5) or 5)
 
-                stop_dist = max(150.0 * point, 0.0015)
-                sl = round(price - stop_dist if signal == "BUY" else price + stop_dist, digits)
-                tp = round(price + (stop_dist * 2.0) if signal == "BUY" else price - (stop_dist * 2.0), digits)
+                signal_range = max(float(scalp_res.get("range", 0.0) or 0.0), point)
+                stop_dist = max(signal_range * 0.75, point * 150.0)
 
-                balance = float(getattr(account, "balance", 0.0) if not isinstance(account, dict) else account.get("balance", 0.0))
-                tiered_lot = get_tiered_lot_size(balance)
-                burst_count = int(scalp_res.get("burst_count", 3))
+                sl = round(
+                    entry - stop_dist if signal == "BUY" else entry + stop_dist,
+                    digits,
+                )
+                tp = round(
+                    entry + (stop_dist * 3.0)
+                    if signal == "BUY"
+                    else entry - (stop_dist * 3.0),
+                    digits,
+                )
 
-                self._add_log("INFO", f"[CANDLE SCALPER] Firing {burst_count}x {signal} burst ({tiered_lot} lots each) on {symbol}")
+                balance = float(
+                    getattr(account, "balance", 0.0)
+                    if not isinstance(account, dict)
+                    else account.get("balance", 0.0)
+                )
+                lot = get_tiered_lot_size(balance)
 
-                for i in range(burst_count):
+                candle_move_target = float(
+                    scalp_res.get(
+                        "candle_move_target",
+                        scalp_res.get("body", signal_range),
+                    )
+                    or signal_range
+                )
+                comment = candle_position_comment(signal, candle_move_target)
+                profit_target = float(scalp_res.get("profit_target_usd", 2.50))
+
+                self._add_log(
+                    "INFO",
+                    f"[CANDLE SCALPER] {signal} burst: "
+                    f"{burst_count}x {lot}L {symbol}; "
+                    f"max profit \${profit_target:.2f}; "
+                    f"M1 move target {candle_move_target:.6f}",
+                )
+
+                opened = 0
+                for index in range(burst_count):
                     order_payload = {
                         "symbol": symbol,
                         "action": signal,
                         "decision": signal,
                         "signal": signal,
-                        "volume": tiered_lot,
-                        "price": price,
-                        "entry": price,
+                        "order_type": signal,
+                        "volume": lot,
+                        "price": entry,
+                        "entry": entry,
                         "stop_loss": sl,
                         "take_profit": tp,
-                        "comment": f"Bally Scalp #{i+1}",
+                        "magic_number": 20260817,
+                        "comment": comment,
+                        "strategy": "CANDLE_SCALPER",
+                        "timeframe": "M1",
+                        "burst_index": index + 1,
+                        "burst_count": burst_count,
+                        "profit_target_usd": profit_target,
+                        "candle_move_target": candle_move_target,
                     }
-                    gate_payload = {"gate": "PASS", "allowed": True}
-                    await asyncio.to_thread(
+
+                    live_res = await asyncio.to_thread(
                         execute_live_trade,
                         order=order_payload,
-                        gate=gate_payload,
+                        gate=None,
                     )
+
+                    if live_res.get("status") in ("EXECUTED", "SUCCESS") or live_res.get("real_trade"):
+                        opened += 1
+                    else:
+                        reason = live_res.get("reason", "broker execution blocked")
+                        self._add_log(
+                            "WARNING",
+                            f"[CANDLE SCALPER] Burst leg {index + 1}/{burst_count} "
+                            f"not opened on {symbol}: {reason}",
+                        )
+                        break
+
                     await asyncio.sleep(0.15)
-                return True
-            except Exception as e:
-                self._add_log("WARNING", f"Candle Scalper error on {symbol}: {e}")
+
+                if opened == burst_count:
+                    return True
+
+                if opened:
+                    self._add_log(
+                        "WARNING",
+                        f"[CANDLE SCALPER] Partial burst on {symbol}: "
+                        f"{opened}/{burst_count} legs opened",
+                    )
+                return opened > 0
+
+            except Exception as exc:
+                self._add_log("WARNING", f"Candle Scalper error on {symbol}: {exc}")
                 return False
 
         # --- 2. SMC & HYBRID ENGINE BRANCH ---
