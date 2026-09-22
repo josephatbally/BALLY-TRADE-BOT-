@@ -145,5 +145,5 @@ def update_bot_strategy(req: StrategyUpdateRequest):
     strat = req.strategy.upper()
     if strat not in ("SMC", "CANDLE_SCALPER"):
         strat = "SMC"
-    auto_trader.active_strategy = strat
+    auto_trader.set_strategy(strat)
     return {"status": "ok", "strategy": strat, "message": f"Strategy updated to {strat}"}
