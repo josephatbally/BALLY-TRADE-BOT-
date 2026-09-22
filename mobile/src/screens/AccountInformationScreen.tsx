@@ -191,15 +191,12 @@ export default function AccountInformationScreen({ navigation, route }: Props) {
           />
         </View>
 
-        {/* RE-LINK BUTTON */}
-        <Pressable
-          style={({ pressed }) => [styles.relinkBtn, pressed && styles.relinkBtnPressed]}
-          onPress={() => navigation.navigate("BrokerSetup", user)}
-        >
+        {/* TERMINAL-ATTACHED NOTICE */}
+        <View style={styles.relinkBtn}>
           <Text style={styles.relinkBtnText} allowFontScaling={false}>
-            RE-CONFIGURE MT5 BROKER CREDENTIALS
+            AUTO-ATTACHED TO THE RUNNING MT5 TERMINAL
           </Text>
-        </Pressable>
+        </View>
       </ScrollView>
     </View>
   );

@@ -35,7 +35,6 @@ export type FlowDecision =
 export type RootStackParamList = {
   Splash: undefined;
   Login: undefined;
-  BrokerSetup: AuthenticatedUser;
 
   MainTabs: AuthenticatedUser;
 

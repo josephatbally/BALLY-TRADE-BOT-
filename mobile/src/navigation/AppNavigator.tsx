@@ -4,7 +4,6 @@ import {NavigationContainer} from '@react-navigation/native';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 
 import LoginScreen from '../screens/LoginScreen';
-import BrokerSetupScreen from '../screens/BrokerSetupScreen';
 import {useTheme} from '../theme/ThemeContext';
 import MainTabNavigator from './MainTabNavigator';
 import HistoryScreen from '../screens/HistoryScreen';
@@ -46,7 +45,6 @@ export default function AppNavigator() {
       <Stack.Navigator initialRouteName="Splash" screenOptions={{headerShown: false, animation: 'slide_from_right', contentStyle: {backgroundColor: theme.colors.background}, animationTypeForReplace: 'push'}}>
         <Stack.Screen name="Splash" component={SplashScreen}/>
         <Stack.Screen name="Login" component={LoginScreen}/>
-        <Stack.Screen name="BrokerSetup" component={BrokerSetupScreen}/>
         <Stack.Screen name="MainTabs" component={MainTabNavigator}/>
         <Stack.Screen name="History" component={HistoryScreen}/>
         <Stack.Screen name="Notifications" component={NotificationsScreen}/>

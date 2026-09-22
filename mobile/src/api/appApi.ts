@@ -236,6 +236,35 @@ export function getBotTelemetry() {
   return apiRequest<BotTelemetryResponse>('/api/v1/app/bot/telemetry');
 }
 
+/**
+ * ============================================================
+ * BOT STRATEGY
+ * ============================================================
+ */
+
+export type BotStrategy = 'SMC' | 'HYBRID' | 'CANDLE_SCALPER';
+
+export type StrategyResponse = {
+  status: string;
+  strategy: BotStrategy;
+  mode?: string;
+  running?: boolean;
+  enabled?: boolean;
+  supported?: BotStrategy[];
+  message?: string;
+};
+
+export function getBotStrategy() {
+  return apiRequest<StrategyResponse>('/api/v1/app/strategy');
+}
+
+export function updateBotStrategy(strategy: BotStrategy) {
+  return apiRequest<StrategyResponse>('/api/v1/app/strategy', {
+    method: 'PUT',
+    body: JSON.stringify({strategy}),
+  });
+}
+
 export function toggleBotAutoTrade(enabled: boolean) {
   return apiRequest<{status: string; auto_trading_enabled: boolean}>('/api/v1/app/bot/toggle', {
     method: 'POST',

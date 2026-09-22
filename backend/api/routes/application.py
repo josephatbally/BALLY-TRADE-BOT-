@@ -13,6 +13,7 @@ from backend.main import (
 )
 from backend.trading_engine.modes.mode_controller import (
     TradingMode,
+    get_mode_controller,
 )
 from backend.trading_engine.auto_trader import auto_trader
 from backend.security.jwt_auth import get_current_user
@@ -129,21 +130,55 @@ def update_bot_settings(request: BotSettingsRequest, current_user: Dict[str, Any
     }
 
 
-from pydantic import BaseModel
 class StrategyUpdateRequest(BaseModel):
     strategy: str
 
+
+SUPPORTED_STRATEGY_VALUES = ("SMC", "HYBRID", "CANDLE_SCALPER")
+
+
 @router.get("/strategy")
-def get_bot_strategy():
-    from backend.trading_engine.auto_trader import auto_trader
-    current = getattr(auto_trader, "active_strategy", "SMC")
-    return {"status": "ok", "strategy": current}
+def get_bot_strategy(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Return the strategy the bot is currently trading with."""
+    return {
+        "status": "ok",
+        "strategy": auto_trader.get_strategy(),
+        "supported": list(SUPPORTED_STRATEGY_VALUES),
+    }
+
 
 @router.put("/strategy")
-def update_bot_strategy(req: StrategyUpdateRequest):
-    from backend.trading_engine.auto_trader import auto_trader
-    strat = req.strategy.upper()
-    if strat not in ("SMC", "CANDLE_SCALPER"):
-        strat = "SMC"
-    auto_trader.set_strategy(strat)
-    return {"status": "ok", "strategy": strat, "message": f"Strategy updated to {strat}"}
+def update_bot_strategy(
+    req: StrategyUpdateRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """
+    Switch the live trading strategy.
+
+    The strategy is wired straight into the running bot: it selects the
+    execution branch and re-routes the analysis pipeline (HYBRID enables
+    the fundamental/news layer, SMC stays purely technical).
+    """
+    strat = str(req.strategy or "").strip().upper()
+    if strat not in SUPPORTED_STRATEGY_VALUES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported strategy '{req.strategy}'. "
+                   f"Supported: {', '.join(SUPPORTED_STRATEGY_VALUES)}",
+        )
+
+    applied = auto_trader.set_strategy(strat)
+    mode_ctrl = get_mode_controller()
+    try:
+        application.set_mode(mode_ctrl.mode)
+    except Exception:
+        pass
+
+    return {
+        "status": "ok",
+        "strategy": applied,
+        "mode": mode_ctrl.mode.value,
+        "running": auto_trader.running,
+        "enabled": auto_trader.enabled,
+        "message": f"Strategy updated to {applied}",
+    }

@@ -60,7 +60,7 @@ export default function LoginScreenProviderOtp({navigation}: Props) {
         };
         await AsyncStorage.setItem('@bally_auth_token', res.token);
         await AsyncStorage.setItem('@bally_auth_user', JSON.stringify(user));
-        navigation.replace('BrokerSetup', user);
+        navigation.replace('MainTabs', user);
         return;
       }
 
@@ -91,7 +91,7 @@ export default function LoginScreenProviderOtp({navigation}: Props) {
         phone: res.user.phone,
         countryCode: res.user.country_code,
       };
-      navigation.replace('BrokerSetup', user);
+      navigation.replace('MainTabs', user);
     } catch (err: any) {
       Alert.alert('Verification failed', err?.message || 'The code is invalid or expired.');
     } finally {

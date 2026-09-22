@@ -7,6 +7,7 @@ import { getHistorySummary, HistorySummaryResponse } from '../api/historyApi';
 import React, { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  Alert,
   Dimensions,
   Image,
   Pressable,
@@ -27,6 +28,9 @@ import {
   getHealth,
   updateApplicationMode,
   toggleBotAutoTrade,
+  getBotStrategy,
+  updateBotStrategy,
+  BotStrategy,
 } from '../api/appApi';
 import {AccountResponse} from '../api/accountApi';
 import * as accountApiModule from '../api/accountApi';
@@ -176,7 +180,51 @@ export default function DashboardScreen({
 
   const [botEnabled, setBotEnabled] =
     React.useState(false);
-      const [activeStrategy, setActiveStrategy] = useState<'SMC' | 'CANDLE_SCALPER'>('SMC');
+  const [activeStrategy, setActiveStrategy] = useState<BotStrategy>('SMC');
+  const [strategySaving, setStrategySaving] = useState(false);
+
+  // Keep the selector in sync with the strategy the bot is really running.
+  useEffect(() => {
+    let active = true;
+    const sync = () => {
+      getBotStrategy()
+        .then(res => {
+          if (active && res?.strategy) {
+            setActiveStrategy(res.strategy);
+          }
+        })
+        .catch(() => {});
+    };
+    sync();
+    const interval = setInterval(sync, 10000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const applyStrategy = async (strategy: BotStrategy) => {
+    if (strategy === activeStrategy || strategySaving) {
+      return;
+    }
+    const previous = activeStrategy;
+    setActiveStrategy(strategy);
+    setStrategySaving(true);
+    try {
+      const res = await updateBotStrategy(strategy);
+      if (res?.strategy) {
+        setActiveStrategy(res.strategy);
+      }
+    } catch (err: any) {
+      setActiveStrategy(previous);
+      Alert.alert(
+        'Strategy not applied',
+        err?.message || 'The bot did not accept the strategy change.',
+      );
+    } finally {
+      setStrategySaving(false);
+    }
+  };
 
 
   const [tradingMode, setTradingMode] =
@@ -828,8 +876,9 @@ export default function DashboardScreen({
 
           <View style={styles.strategyButtonsRow}>
             <Pressable
+              disabled={strategySaving}
               style={[styles.strategyBtn, activeStrategy === 'SMC' && styles.strategyBtnActive]}
-              onPress={() => setActiveStrategy('SMC')}>
+              onPress={() => applyStrategy('SMC')}>
               <Text style={[styles.strategyBtnText, activeStrategy === 'SMC' && styles.strategyBtnTextActive]}>
                 SMC INSTITUTIONAL
               </Text>
@@ -837,12 +886,23 @@ export default function DashboardScreen({
             </Pressable>
 
             <Pressable
+              disabled={strategySaving}
               style={[styles.strategyBtn, activeStrategy === 'CANDLE_SCALPER' && styles.strategyBtnActive]}
-              onPress={() => setActiveStrategy('CANDLE_SCALPER')}>
+              onPress={() => applyStrategy('CANDLE_SCALPER')}>
               <Text style={[styles.strategyBtnText, activeStrategy === 'CANDLE_SCALPER' && styles.strategyBtnTextActive]}>
                 CANDLE SCALPER
               </Text>
               <Text style={styles.strategyBtnDesc}>M1/M5 Rapid Bursts</Text>
+            </Pressable>
+
+            <Pressable
+              disabled={strategySaving}
+              style={[styles.strategyBtn, activeStrategy === 'HYBRID' && styles.strategyBtnActive]}
+              onPress={() => applyStrategy('HYBRID')}>
+              <Text style={[styles.strategyBtnText, activeStrategy === 'HYBRID' && styles.strategyBtnTextActive]}>
+                HYBRID AI
+              </Text>
+              <Text style={styles.strategyBtnDesc}>Structure + News Filter</Text>
             </Pressable>
           </View>
         </View>

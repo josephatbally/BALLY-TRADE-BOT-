@@ -1695,3 +1695,68 @@ __all__ = [
 
 
 
+
+
+# ==================================================================
+# TERMINAL-ATTACHED SESSION (NO MANUAL LOGIN)
+# ==================================================================
+#
+# BALLY FLOW never asks the user for MT5 credentials.
+# The bot attaches to the MetaTrader 5 terminal that is already
+# running and already logged in on the same machine.
+
+
+def attach_running_terminal(*, path: Optional[str] = None) -> bool:
+    """
+    Attach to the MT5 terminal that is already running and logged in.
+
+    No login, password or server is ever supplied: the terminal's
+    current account is the single source of truth.
+    """
+
+    if _connection.is_connected():
+        return True
+
+    return _connection.initialize(path=path)
+
+
+def ensure_mt5_connected(*, path: Optional[str] = None) -> bool:
+    """Idempotent guard used before any MT5 read or trade operation."""
+
+    return attach_running_terminal(path=path)
+
+
+def get_terminal_account_identity() -> Dict[str, Any]:
+    """Return the identity of the account currently open in the terminal."""
+
+    if not ensure_mt5_connected():
+        return {"connected": False}
+
+    account = _connection.account_info()
+    if account is None:
+        return {"connected": False}
+
+    def _read(name: str, default: Any = None) -> Any:
+        if isinstance(account, dict):
+            return account.get(name, default)
+        return getattr(account, name, default)
+
+    return {
+        "connected": True,
+        "login": _read("login"),
+        "server": _read("server"),
+        "company": _read("company"),
+        "name": _read("name"),
+        "currency": _read("currency"),
+        "leverage": _read("leverage"),
+        "balance": _read("balance"),
+        "equity": _read("equity"),
+        "trade_mode": _read("trade_mode"),
+    }
+
+
+__all__ = list(__all__) + [
+    "attach_running_terminal",
+    "ensure_mt5_connected",
+    "get_terminal_account_identity",
+]

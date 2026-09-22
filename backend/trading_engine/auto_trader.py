@@ -2,6 +2,7 @@
 from backend.trading_engine.hybrid.hybrid_engine import analyze_hybrid_market
 from backend.trading_engine.ai.ai_engine import ai_engine
 from backend.trading_engine.candle_scalper.candle_scalper import (
+    DEFAULT_BURST_COUNT,
     DEFAULT_PROFIT_TARGET_USD,
     MIN_CONFIDENCE,
     analyze_candle_momentum,
@@ -17,6 +18,7 @@ from typing import Dict, Any, List, Optional, Set
 
 from backend.trading_engine.engine import SUPPORTED_MARKETS, analyze_market
 from backend.trading_engine.market_data.mt5_connection import (
+    ensure_mt5_connected,
     is_mt5_connected,
     get_positions,
     get_account_info,
@@ -33,6 +35,27 @@ from backend.trading_engine.tenant_router import tenant_router
 from backend.trading_engine.trading_account_runtime import resolve_authenticated_trading_account
 
 logger = logging.getLogger("AutoTrader")
+
+SUPPORTED_STRATEGIES = ("SMC", "HYBRID", "CANDLE_SCALPER")
+CANDLE_SCALPER_MAGIC = 20260817
+
+
+def pos_field(position: Any, name: str, default: Any = None) -> Any:
+    """Read a field from an MT5 position given as a dict or a namedtuple."""
+    if isinstance(position, dict):
+        value = position.get(name, default)
+    else:
+        value = getattr(position, name, default)
+    return default if value is None else value
+
+
+def acc_field(account: Any, name: str, default: Any = 0.0) -> Any:
+    """Read a field from MT5 account info given as a dict or a namedtuple."""
+    if isinstance(account, dict):
+        value = account.get(name, default)
+    else:
+        value = getattr(account, name, default)
+    return default if value is None else value
 
 
 class _AwaitableResult:
@@ -105,6 +128,8 @@ class AutoTrader:
         self.logs: List[Dict[str, Any]] = []
         self.owner_user_id: Optional[int] = None
         self.active_strategy: str = "SMC"
+        self._closing_tickets: Set[Any] = set()
+        self._manage_task: Optional[asyncio.Task] = None
 
     def _add_log(self, level: str, message: str, details: Any = None):
         entry = {
@@ -117,12 +142,69 @@ class AutoTrader:
         if len(self.logs) > 30:
             self.logs.pop()
 
-    def set_strategy(self, strategy: str):
-        self.active_strategy = str(strategy).upper()
+    def set_strategy(self, strategy: str) -> str:
+        """Set the live strategy and route the analysis pipeline to match."""
+        requested = str(strategy or "").strip().upper()
+        if requested not in SUPPORTED_STRATEGIES:
+            raise ValueError(
+                f"Unsupported strategy '{strategy}'. "
+                f"Supported: {', '.join(SUPPORTED_STRATEGIES)}"
+            )
+
+        self.active_strategy = requested
+
+        # Wire the strategy into the analysis pipeline so the running bot
+        # actually changes behaviour instead of only changing a label.
+        try:
+            mode_ctrl = get_mode_controller()
+            mode_ctrl.set_mode(
+                TradingMode.HYBRID if requested == "HYBRID" else TradingMode.TECHNICAL
+            )
+        except Exception as exc:
+            logger.error("Unable to align mode controller with strategy: %s", exc)
+
         self._add_log("INFO", f"Active strategy changed to {self.active_strategy}")
+        return self.active_strategy
 
     def get_strategy(self) -> str:
-        return getattr(self, "active_strategy", "SMC")
+        return str(getattr(self, "active_strategy", "SMC") or "SMC").upper()
+
+    def _record_owner_tickets(
+        self,
+        live_res: Dict[str, Any],
+        *,
+        symbol: str,
+        action: str,
+        lot: float,
+        magic_number: int = 100001,
+    ) -> None:
+        """Record broker tickets against the owning tenant (single source)."""
+        if self.owner_user_id is None or not isinstance(live_res, dict):
+            return
+
+        broker_send = live_res.get("mt5_order_send", {})
+        tickets = {
+            live_res.get("ticket"),
+            live_res.get("deal"),
+            live_res.get("order"),
+            broker_send.get("order") if isinstance(broker_send, dict) else None,
+            broker_send.get("deal") if isinstance(broker_send, dict) else None,
+        }
+        for ticket in tickets:
+            if not ticket:
+                continue
+            try:
+                tenant_router.record_user_order(
+                    user_id=self.owner_user_id,
+                    ticket=int(ticket),
+                    symbol=symbol,
+                    action=action,
+                    lot_size=float(lot),
+                    status="SUBMITTED",
+                    magic_number=magic_number,
+                )
+            except Exception as exc:
+                logger.error("Unable to record order ownership: %s", exc)
 
     def start(self):
         if not self.running or self._task is None or self._task.done():
@@ -169,6 +251,33 @@ class AutoTrader:
             return bool(self.start())
         return bool(self.stop())
 
+    def update_settings(
+        self,
+        *,
+        min_confidence: Optional[float] = None,
+        risk_per_trade_pct: Optional[float] = None,
+        max_positions: Optional[int] = None,
+        scan_interval_seconds: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Update live bot settings; unspecified values are left unchanged."""
+        if min_confidence is not None:
+            self.min_confidence = max(0.0, min(99.0, float(min_confidence)))
+        if risk_per_trade_pct is not None:
+            self.risk_pct = max(0.1, min(float(risk_per_trade_pct), self.max_risk_pct))
+        if max_positions is not None:
+            self.max_positions = max(1, int(max_positions))
+        if scan_interval_seconds is not None:
+            self.scan_interval = max(1, int(scan_interval_seconds))
+
+        settings = {
+            "min_confidence": self.min_confidence,
+            "risk_per_trade_pct": self.risk_pct,
+            "max_positions": self.max_positions,
+            "scan_interval_seconds": self.scan_interval,
+        }
+        self._add_log("INFO", f"Bot settings updated: {settings}")
+        return settings
+
     def get_telemetry(self) -> Dict[str, Any]:
         return self.get_status()
 
@@ -201,31 +310,15 @@ class AutoTrader:
         Closes individual legs when their floating profit reaches >= $2.50.
         Does not close unaffected legs in the group.
         """
+        closes = []
         for pos in positions:
-            comment = (
-                pos.get("comment", "")
-                if isinstance(pos, dict)
-                else getattr(pos, "comment", "")
-            )
-            parsed = parse_candle_position_comment(comment)
+            parsed = parse_candle_position_comment(pos_field(pos, "comment", ""))
             if not parsed:
                 continue
 
-            profit = float(
-                pos.get("profit", 0.0)
-                if isinstance(pos, dict)
-                else getattr(pos, "profit", 0.0)
-            )
-            ticket = (
-                pos.get("ticket")
-                if isinstance(pos, dict)
-                else getattr(pos, "ticket", None)
-            )
-            symbol = (
-                pos.get("symbol", "")
-                if isinstance(pos, dict)
-                else getattr(pos, "symbol", "")
-            )
+            profit = float(pos_field(pos, "profit", 0.0))
+            ticket = pos_field(pos, "ticket")
+            symbol = pos_field(pos, "symbol", "")
             direction = parsed.get("direction", "")
 
             # Strict individual leg exit: each leg must hit >= $2.50
@@ -235,43 +328,49 @@ class AutoTrader:
                     f"[CANDLE SCALPER] Leg profit hit: {symbol} (#{ticket}) {direction} "
                     f"+${profit:.2f} >= ${DEFAULT_PROFIT_TARGET_USD:.2f} -> Closing leg",
                 )
-                close_position(ticket)
+                closes.append(self._close_position_async(ticket, symbol))
+
+        if closes:
+            await asyncio.gather(*closes, return_exceptions=True)
+
+    async def _close_position_async(self, ticket: Any, symbol: str = "") -> None:
+        """Close a position off the event loop so the scan loop never stalls."""
+        if ticket is None or ticket in self._closing_tickets:
+            return
+        self._closing_tickets.add(ticket)
+        try:
+            result = await asyncio.to_thread(close_position, ticket)
+            if isinstance(result, dict) and not result.get("closed", True):
+                self._add_log(
+                    "WARNING",
+                    f"Close rejected on {symbol} (#{ticket}): "
+                    f"{result.get('reason', 'unknown broker reason')}",
+                )
+        except Exception as exc:
+            self._add_log("WARNING", f"Close failed on {symbol} (#{ticket}): {exc}")
+        finally:
+            self._closing_tickets.discard(ticket)
 
     async def _manage_positions(self):
         if not self.auto_manage_exits or not is_mt5_connected():
             return
 
+        raw_positions = await asyncio.to_thread(get_positions)
         positions = tenant_router.filter_user_positions(
             self.owner_user_id,
-            get_positions() or [],
+            raw_positions or [],
         )
 
         await self._manage_candle_scalper_bursts(positions)
 
+        closes = []
         for pos in positions:
-            comment = (
-                pos.get("comment", "")
-                if isinstance(pos, dict)
-                else getattr(pos, "comment", "")
-            )
-            if parse_candle_position_comment(comment):
+            if parse_candle_position_comment(pos_field(pos, "comment", "")):
                 continue
 
-            ticket = (
-                pos.get("ticket")
-                if isinstance(pos, dict)
-                else getattr(pos, "ticket", None)
-            )
-            profit = (
-                pos.get("profit")
-                if isinstance(pos, dict)
-                else getattr(pos, "profit", 0.0)
-            )
-            symbol = (
-                pos.get("symbol")
-                if isinstance(pos, dict)
-                else getattr(pos, "symbol", "")
-            )
+            ticket = pos_field(pos, "ticket")
+            profit = float(pos_field(pos, "profit", 0.0))
+            symbol = pos_field(pos, "symbol", "")
             if ticket is None:
                 continue
 
@@ -290,7 +389,7 @@ class AutoTrader:
                     pnl=profit,
                     quality=85.0,
                 )
-                close_position(ticket)
+                closes.append(self._close_position_async(ticket, symbol))
             elif profit <= self.stop_loss_dollars:
                 self._add_log(
                     "WARNING",
@@ -306,7 +405,10 @@ class AutoTrader:
                     pnl=profit,
                     quality=40.0,
                 )
-                close_position(ticket)
+                closes.append(self._close_position_async(ticket, symbol))
+
+        if closes:
+            await asyncio.gather(*closes, return_exceptions=True)
 
     async def _evaluate_and_execute_symbol(
         self,
@@ -315,20 +417,18 @@ class AutoTrader:
         account: Any,
         current_count: int,
     ) -> bool:
-        active_strategy = getattr(self, "active_strategy", "SMC").upper()
+        active_strategy = self.get_strategy()
         if active_strategy != "CANDLE_SCALPER" and symbol in open_symbols:
             return False
 
         # --- 1. CANDLE MOMENTUM SCALPER BRANCH ---
         # Independent from SMC, Hybrid and AI.
         if active_strategy == "CANDLE_SCALPER":
-            all_positions = get_positions() or []
+            all_positions = await asyncio.to_thread(get_positions) or []
             active_cs_legs = [
                 p for p in all_positions
-                if (p.get("symbol") if isinstance(p, dict) else getattr(p, "symbol", "")) == symbol
-                and parse_candle_position_comment(
-                    p.get("comment", "") if isinstance(p, dict) else getattr(p, "comment", "")
-                )
+                if pos_field(p, "symbol", "") == symbol
+                and parse_candle_position_comment(pos_field(p, "comment", ""))
             ]
             current_cs_count = len(active_cs_legs)
             slots_needed = max(0, DEFAULT_BURST_COUNT - current_cs_count)
@@ -396,11 +496,7 @@ class AutoTrader:
                     digits,
                 )
 
-                balance = float(
-                    getattr(account, "balance", 0.0)
-                    if not isinstance(account, dict)
-                    else account.get("balance", 0.0)
-                )
+                balance = float(acc_field(account, "balance", 0.0))
                 lot = get_tiered_lot_size(balance)
 
                 candle_move_target = float(
@@ -434,7 +530,7 @@ class AutoTrader:
                         "entry": entry,
                         "stop_loss": sl,
                         "take_profit": tp,
-                        "magic_number": 20260817,
+                        "magic_number": CANDLE_SCALPER_MAGIC,
                         "comment": comment,
                         "strategy": "CANDLE_SCALPER",
                         "timeframe": "M1",
@@ -453,26 +549,13 @@ class AutoTrader:
                     if live_res.get("status") in ("EXECUTED", "SUCCESS") or live_res.get("real_trade"):
                         opened += 1
 
-                        broker_send = live_res.get("mt5_order_send", {})
-                        recorded_tickets = {
-                            live_res.get("ticket"),
-                            live_res.get("deal"),
-                            live_res.get("order"),
-                            broker_send.get("order") if isinstance(broker_send, dict) else None,
-                            broker_send.get("deal") if isinstance(broker_send, dict) else None,
-                        }
-                        if self.owner_user_id is not None:
-                            for ticket in recorded_tickets:
-                                if ticket:
-                                    tenant_router.record_user_order(
-                                        user_id=self.owner_user_id,
-                                        ticket=int(ticket),
-                                        symbol=symbol,
-                                        action=signal,
-                                        lot_size=lot,
-                                        status="SUBMITTED",
-                                        magic_number=20260817,
-                                    )
+                        self._record_owner_tickets(
+                            live_res,
+                            symbol=symbol,
+                            action=signal,
+                            lot=lot,
+                            magic_number=CANDLE_SCALPER_MAGIC,
+                        )
                     else:
                         reason = live_res.get("reason", "broker execution blocked")
                         self._add_log(
@@ -511,7 +594,8 @@ class AutoTrader:
             active_mode = mode_ctrl.mode.value
             fundamental_info = {}
 
-            if mode_ctrl.is_hybrid():
+            use_hybrid = active_strategy == "HYBRID" or mode_ctrl.is_hybrid()
+            if use_hybrid:
                 hybrid_res = await asyncio.to_thread(analyze_hybrid_market, symbol=symbol, technical_result=analysis)
                 alignment = hybrid_res.get("alignment", "UNKNOWN")
                 hybrid_signal = hybrid_res.get("hybrid_signal", "NO_TRADE")
@@ -521,13 +605,22 @@ class AutoTrader:
                 if hybrid_signal in ["BUY", "SELL"] and alignment in ["BUY_ALIGNED", "SELL_ALIGNED"]:
                     action = hybrid_signal
                     confidence = hybrid_conf
-                    self._add_log(f"[HYBRID] {symbol} {alignment}: Tech & News ALIGNED -> {action} ({confidence:.1f}%)")
+                    self._add_log(
+                        "INFO",
+                        f"[HYBRID] {symbol} {alignment}: Tech & News ALIGNED -> "
+                        f"{action} ({confidence:.1f}%)",
+                    )
                 else:
-                    self._add_log(f"[HYBRID SAFETY] {symbol} blocked by news conflict: {alignment} (Tech: {action})")
+                    self._add_log(
+                        "WARNING",
+                        f"[HYBRID SAFETY] {symbol} blocked by news conflict: "
+                        f"{alignment} (Tech: {action})",
+                    )
                     self.last_analysis_summary[symbol] = {
                         "action": "NO_TRADE",
                         "confidence": hybrid_conf,
                         "mode": active_mode,
+                        "strategy": active_strategy,
                         "alignment": alignment,
                     }
                     return False
@@ -540,6 +633,7 @@ class AutoTrader:
                 "action": action,
                 "confidence": confidence,
                 "mode": active_mode,
+                "strategy": active_strategy,
                 "regime": ai_study.get("regime", "BALANCED_RANGE"),
                 "ai_samples": ai_study.get("samples_learned", 0),
             }
@@ -577,8 +671,8 @@ class AutoTrader:
             high_target = round(price + (stop_dist * 3.0), digits)
             low_target = round(price - (stop_dist * 3.0), digits)
 
-            bal = float(getattr(account, "balance", 100.0) if not isinstance(account, dict) else account.get("balance", 100.0) or 100.0)
-            eq = float(getattr(account, "equity", bal) if not isinstance(account, dict) else account.get("equity", bal) or bal)
+            bal = float(acc_field(account, "balance", 100.0) or 100.0)
+            eq = float(acc_field(account, "equity", bal) or bal)
 
             calculated_lot = calculate_dynamic_lot(
                 symbol=symbol,
@@ -647,9 +741,14 @@ class AutoTrader:
                 while isinstance(order_payload, dict) and "order" in order_payload and isinstance(order_payload["order"], dict):
                     order_payload = order_payload["order"]
 
-                live_res = execute_live_trade(order=order_payload, gate=gate_result)
+                live_res = await asyncio.to_thread(
+                    execute_live_trade, order=order_payload, gate=gate_result
+                )
                 if live_res.get("status") in ("EXECUTED", "SUCCESS") or live_res.get("order_sent"):
                     ticket = live_res.get("ticket") or live_res.get("deal") or live_res.get("order")
+                    self._record_owner_tickets(
+                        live_res, symbol=symbol, action=action, lot=calculated_lot
+                    )
                     self._add_log("SUCCESS", f"Auto-trade placed: {action} {calculated_lot}L {symbol} (#{ticket}) [Conf: {confidence:.0f}%]")
                     return True
                 else:
@@ -667,16 +766,25 @@ class AutoTrader:
         while self.running and self.enabled:
             try:
                 self.last_scan_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                # Attach to the MT5 terminal running on this machine.
+                # No credentials are ever requested from the user.
+                if not is_mt5_connected():
+                    await asyncio.to_thread(ensure_mt5_connected)
+
                 if is_mt5_connected():
-                    await self._manage_positions()
-                    positions = get_positions() or []
+                    # Exit management runs alongside the scan: closing a
+                    # position must never hold up the next scan cycle.
+                    if self._manage_task is None or self._manage_task.done():
+                        self._manage_task = asyncio.create_task(self._manage_positions())
+
+                    positions = await asyncio.to_thread(get_positions) or []
                     open_count = len(positions)
                     if open_count < self.max_positions:
                         open_symbols = {
-                            p.get("symbol") if isinstance(p, dict) else getattr(p, "symbol", "")
-                            for p in positions
+                            pos_field(p, "symbol", "") for p in positions
                         }
-                        account = get_account_info() or {}
+                        account = await asyncio.to_thread(get_account_info) or {}
 
                         tasks = [
                             self._evaluate_and_execute_symbol(sym, open_symbols, account, open_count)
@@ -689,6 +797,9 @@ class AutoTrader:
             except Exception as loop_err:
                 self._add_log("ERROR", f"Loop exception: {loop_err}")
             await asyncio.sleep(self.scan_interval)
+
+        if self._manage_task and not self._manage_task.done():
+            self._manage_task.cancel()
         self.running = False
 
 
