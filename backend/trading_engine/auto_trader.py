@@ -276,6 +276,7 @@ class AutoTrader:
                     "EXECUTED",
                     "SUCCESS",
                     "CLOSED",
+                    "OK",
                 ):
                     profit = (
                         float(pos.get("profit", 0.0))
