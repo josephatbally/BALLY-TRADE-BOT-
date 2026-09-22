@@ -29,7 +29,7 @@ MOMENTUM_BODY_RATIO = 0.55
 MIN_CONFIDENCE = 70.0
 DEFAULT_BURST_COUNT = 3
 DEFAULT_PROFIT_TARGET_USD = 2.50
-POSITION_COMMENT_PREFIX = "BALLY_CS"
+POSITION_COMMENT_PREFIX = "BALLYCS"
 
 # The forming M1 candle is intentionally excluded from the entry decision.
 # This prevents a signal from appearing/disappearing while the candle is
