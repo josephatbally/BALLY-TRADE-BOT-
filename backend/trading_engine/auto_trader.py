@@ -492,22 +492,26 @@ class AutoTrader:
                     if live_res.get("status") in ("EXECUTED", "SUCCESS") or live_res.get("real_trade"):
                         opened += 1
 
-                        ticket = (
-                            live_res.get("ticket")
-                            or live_res.get("deal")
-                            or live_res.get("order")
-                            or live_res.get("mt5_order_send", {}).get("order")
-                        )
-                        if ticket and self.owner_user_id is not None:
-                            tenant_router.record_user_order(
-                                user_id=self.owner_user_id,
-                                ticket=int(ticket),
-                                symbol=symbol,
-                                action=signal,
-                                lot_size=lot,
-                                status="SUBMITTED",
-                                magic_number=20260817,
-                            )
+                        broker_send = live_res.get("mt5_order_send", {})
+                        recorded_tickets = {
+                            live_res.get("ticket"),
+                            live_res.get("deal"),
+                            live_res.get("order"),
+                            broker_send.get("order") if isinstance(broker_send, dict) else None,
+                            broker_send.get("deal") if isinstance(broker_send, dict) else None,
+                        }
+                        if self.owner_user_id is not None:
+                            for ticket in recorded_tickets:
+                                if ticket:
+                                    tenant_router.record_user_order(
+                                        user_id=self.owner_user_id,
+                                        ticket=int(ticket),
+                                        symbol=symbol,
+                                        action=signal,
+                                        lot_size=lot,
+                                        status="SUBMITTED",
+                                        magic_number=20260817,
+                                    )
                     else:
                         reason = live_res.get("reason", "broker execution blocked")
                         self._add_log(
