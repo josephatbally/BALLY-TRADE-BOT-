@@ -244,7 +244,7 @@ class AutoTrader:
                 continue
 
             reason = (
-                f"maximum burst profit reached (+\${total_profit:.2f})"
+                f"maximum burst profit reached (+${total_profit:.2f})"
                 if total_profit >= profit_target
                 else (
                     "M1 candle movement target reached "
@@ -286,7 +286,7 @@ class AutoTrader:
                     self._add_log(
                         "SUCCESS",
                         f"[CANDLE SCALPER] Closed #{ticket} "
-                        f"{symbol} P/L \${profit:.2f}",
+                        f"{symbol} P/L ${profit:.2f}",
                     )
 
     async def _manage_positions(self):
@@ -330,7 +330,7 @@ class AutoTrader:
             if profit >= self.take_profit_dollars:
                 self._add_log(
                     "SUCCESS",
-                    f"Profit Target Hit: {symbol} (#{ticket}) +\${profit:.2f}",
+                    f"Profit Target Hit: {symbol} (#{ticket}) +${profit:.2f}",
                 )
                 ai_engine.record_trade_outcome(
                     symbol=symbol,
@@ -346,7 +346,7 @@ class AutoTrader:
             elif profit <= self.stop_loss_dollars:
                 self._add_log(
                     "WARNING",
-                    f"Risk Stop Hit: {symbol} (#{ticket}) -\${abs(profit):.2f}",
+                    f"Risk Stop Hit: {symbol} (#{ticket}) -${abs(profit):.2f}",
                 )
                 ai_engine.record_trade_outcome(
                     symbol=symbol,
@@ -456,7 +456,7 @@ class AutoTrader:
                     "INFO",
                     f"[CANDLE SCALPER] {signal} burst: "
                     f"{burst_count}x {lot}L {symbol}; "
-                    f"max profit \${profit_target:.2f}; "
+                    f"max profit ${profit_target:.2f}; "
                     f"M1 move target {candle_move_target:.6f}",
                 )
 
