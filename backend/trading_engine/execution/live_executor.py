@@ -173,6 +173,47 @@ def _mt5_last_error() -> Any:
 # LIVE EXECUTION SWITCH
 # ======================================================================
 
+def set_live_execution_enabled(enabled: bool) -> Dict[str, Any]:
+    """
+    Synchronize the authoritative broker-execution switches with the
+    application's AutoTrader switch.
+
+    Disabled is always the safe state. Enabling execution requires the
+    caller to explicitly enable AutoTrader; this function does not enable
+    itself during module import.
+    """
+    global LIVE_TRADING
+    global EXECUTION_ENABLED
+    global ALLOW_ORDER_SEND
+    global EXECUTION_CONFIRMATION
+    global DRY_RUN
+
+    enabled = bool(enabled)
+
+    if enabled:
+        LIVE_TRADING = True
+        EXECUTION_ENABLED = True
+        ALLOW_ORDER_SEND = True
+        EXECUTION_CONFIRMATION = True
+        DRY_RUN = False
+    else:
+        LIVE_TRADING = False
+        EXECUTION_ENABLED = False
+        ALLOW_ORDER_SEND = False
+        EXECUTION_CONFIRMATION = False
+        DRY_RUN = True
+
+    return {
+        "status": "READY",
+        "enabled": live_execution_enabled(),
+        "live_trading": LIVE_TRADING,
+        "execution_enabled": EXECUTION_ENABLED,
+        "allow_order_send": ALLOW_ORDER_SEND,
+        "execution_confirmation": EXECUTION_CONFIRMATION,
+        "dry_run": DRY_RUN,
+    }
+
+
 def live_execution_enabled() -> bool:
     """
     True ONLY when every production execution switch is enabled.
