@@ -2,6 +2,8 @@
 from backend.trading_engine.hybrid.hybrid_engine import analyze_hybrid_market
 from backend.trading_engine.ai.ai_engine import ai_engine
 from backend.trading_engine.candle_scalper.candle_scalper import (
+    DEFAULT_PROFIT_TARGET_USD,
+    MIN_CONFIDENCE,
     analyze_candle_momentum,
     candle_position_comment,
     current_candle_movement,
@@ -239,7 +241,7 @@ class AutoTrader:
                 and float(movement.get("movement", 0.0)) >= movement_target
             )
 
-            profit_target = 2.50
+            profit_target = DEFAULT_PROFIT_TARGET_USD
             if total_profit < profit_target and not movement_reached:
                 continue
 
