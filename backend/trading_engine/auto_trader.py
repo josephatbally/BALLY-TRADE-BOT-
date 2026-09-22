@@ -391,7 +391,7 @@ class AutoTrader:
                     "range_expansion": scalp_res.get("range_expansion"),
                 }
 
-                if signal not in ("BUY", "SELL") or confidence < 70.0:
+                if signal not in ("BUY", "SELL") or confidence < MIN_CONFIDENCE:
                     return False
 
                 burst_count = max(1, int(scalp_res.get("burst_count", 3)))
