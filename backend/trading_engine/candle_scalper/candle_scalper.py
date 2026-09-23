@@ -34,7 +34,7 @@ POSITION_COMMENT_PREFIX = "BALLYCS"
 # The forming M1 candle is intentionally excluded from the entry decision.
 # This prevents a signal from appearing/disappearing while the candle is
 # still forming.
-USE_CLOSED_CANDLE = False
+USE_CLOSED_CANDLE = True
 
 
 def get_tiered_lot_size(balance: float) -> float:
