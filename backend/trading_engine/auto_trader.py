@@ -308,29 +308,77 @@ class AutoTrader:
 
     async def _manage_candle_scalper_bursts(self, positions):
         """Manage Candle Momentum positions independently per leg.
-        
-        Closes individual legs when their floating profit reaches >= $2.50.
-        Does not close unaffected legs in the group.
+
+        A Candle Scalper leg is closed when either:
+            1. its floating profit reaches the configured USD target, or
+            2. the currently forming M1 candle reaches the favorable movement
+               target stored in the position comment, provided the leg is
+               already profitable.
+
+        Each leg is evaluated independently so one leg never closes another
+        unaffected leg in the same burst.
         """
         closes = []
         for pos in positions:
-            parsed = parse_candle_position_comment(pos_field(pos, "comment", ""))
+            parsed = parse_candle_position_comment(
+                pos_field(pos, "comment", "")
+            )
             if not parsed:
                 continue
 
             profit = float(pos_field(pos, "profit", 0.0))
             ticket = pos_field(pos, "ticket")
             symbol = pos_field(pos, "symbol", "")
-            direction = parsed.get("direction", "")
+            direction = str(parsed.get("direction", "")).upper()
+            movement_target = float(
+                parsed.get("candle_move_target", 0.0) or 0.0
+            )
 
-            # Strict individual leg exit: each leg must hit >= $2.50
-            if profit >= DEFAULT_PROFIT_TARGET_USD and ticket is not None:
-                self._add_log(
-                    "SUCCESS",
-                    f"[CANDLE SCALPER] Leg profit hit: {symbol} (#{ticket}) {direction} "
-                    f"+${profit:.2f} >= ${DEFAULT_PROFIT_TARGET_USD:.2f} -> Closing leg",
+            if ticket is None or direction not in ("BUY", "SELL"):
+                continue
+
+            # USD profit remains the hard dollar exit target.
+            profit_target_hit = profit >= DEFAULT_PROFIT_TARGET_USD
+
+            # The strategy candle-movement exit is evaluated against the
+            # currently forming M1 candle. Require positive floating profit
+            # so a movement-triggered exit cannot intentionally close a
+            # losing leg just because the candle moved from its own open.
+            movement_hit = False
+            movement = 0.0
+            if movement_target > 0.0:
+                movement_res = await asyncio.to_thread(
+                    current_candle_movement,
+                    symbol,
+                    direction,
                 )
-                closes.append(self._close_position_async(ticket, symbol))
+                if isinstance(movement_res, dict) and movement_res.get("ready"):
+                    movement = float(movement_res.get("movement", 0.0) or 0.0)
+                    movement_hit = (
+                        profit > 0.0 and movement >= movement_target
+                    )
+
+            if not (profit_target_hit or movement_hit):
+                continue
+
+            if movement_hit and not profit_target_hit:
+                reason = (
+                    f"M1 favorable move {movement:.6f} >= "
+                    f"target {movement_target:.6f}; "
+                    f"floating profit +${profit:.2f}"
+                )
+            else:
+                reason = (
+                    f"floating profit +${profit:.2f} >= "
+                    f"${DEFAULT_PROFIT_TARGET_USD:.2f}"
+                )
+
+            self._add_log(
+                "SUCCESS",
+                f"[CANDLE SCALPER] Leg exit: {symbol} (#{ticket}) {direction} "
+                f"-> Closing leg ({reason})",
+            )
+            closes.append(self._close_position_async(ticket, symbol))
 
         if closes:
             await asyncio.gather(*closes, return_exceptions=True)
