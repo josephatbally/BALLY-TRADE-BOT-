@@ -61,10 +61,17 @@ def _persist_execution_lifecycle(*, user_id: int, requested_lot_size: float, req
 
     real_trade = False
     live_result: Dict[str, Any] = {}
-    executor = execution.get("executor")
-    if isinstance(executor, dict) and isinstance(executor.get("executor_result"), dict):
-        live_result = executor["executor_result"]
-        real_trade = bool(live_result.get("real_trade"))
+    # The authoritative live result is returned by execute_pipeline()
+    # under live_execution. Keep the executor fallback for compatibility.
+    live_stage = execution.get("live_execution")
+    if isinstance(live_stage, dict) and isinstance(live_stage.get("live_executor_result"), dict):
+        live_result = live_stage["live_executor_result"]
+        real_trade = bool(live_stage.get("real_trade") or live_result.get("real_trade"))
+    else:
+        executor = execution.get("executor")
+        if isinstance(executor, dict) and isinstance(executor.get("executor_result"), dict):
+            live_result = executor["executor_result"]
+            real_trade = bool(live_result.get("real_trade"))
     send_result = live_result.get("mt5_order_send") if isinstance(live_result.get("mt5_order_send"), dict) else {}
     order_ticket = send_result.get("order") or live_result.get("order_ticket")
     deal_ticket = send_result.get("deal") or live_result.get("deal_ticket")
@@ -204,24 +211,75 @@ def execute_order(request: ExecuteOrderRequest, current_user: Dict[str, Any] = D
 
     if not application.running:
         application.start()
+    # Manual BUY/SELL is an operator instruction. It must not be rejected
+    # merely because the strategy engine currently has the opposite signal.
+    # The requested direction still passes through the complete risk,
+    # position, final-gate, broker-check and MT5 execution pipeline.
     analysis = _authoritative_analysis(symbol)
-    decision = str(analysis.get("hybrid_signal", analysis.get("decision", analysis.get("signal", "NO_TRADE"))) or "NO_TRADE").strip().upper()
-    if decision not in ("BUY", "SELL"):
-        return {"status": "BLOCKED", "order_sent": False, "reason": analysis.get("reason", analysis.get("rejection_reason", "Decision Engine returned NO_TRADE.")), "decision": decision, "tenant_id": user_id, "trading_account_id": resolved["configured_account"]["id"]}
-    if decision != action:
-        return {"status": "BLOCKED", "order_sent": False, "reason": f"Requested {action} does not match the authoritative Decision Engine signal {decision}.", "decision": decision, "requested_action": action, "tenant_id": user_id, "trading_account_id": resolved["configured_account"]["id"]}
+    trade_plan = application._build_upstream_trade_plan(
+        market=symbol,
+        decision=action,
+        analysis=analysis,
+    )
+    trade_plan["metadata"] = {
+        **(trade_plan.get("metadata") if isinstance(trade_plan.get("metadata"), dict) else {}),
+        "source": "manual_app",
+        "requested_action": action,
+    }
 
-    trade_plan = application._build_upstream_trade_plan(market=symbol, decision=decision, analysis=analysis)
-    pipeline_result = execute_pipeline(trade_plan=trade_plan, risk_context=application._get_risk_context(), execute_live=True)
-    persistence = _persist_execution_lifecycle(user_id=user_id, requested_lot_size=float(request.lot_size), requested_comment=request.comment, trade_plan=trade_plan, execution=pipeline_result)
-    executor = pipeline_result.get("executor")
-    live_result = executor.get("executor_result", {}) if isinstance(executor, dict) else {}
-    order_sent = bool(live_result.get("real_trade"))
-    ticket = live_result.get("ticket") or live_result.get("order_ticket") or live_result.get("deal_ticket") or 0
-    return {"status": "EXECUTED" if order_sent else "BLOCKED", "order_sent": order_sent, "ticket": ticket,
-            "retcode": live_result.get("retcode"), "reason": live_result.get("reason") or pipeline_result.get("reason"),
-            "details": pipeline_result, "tenant_id": user_id,
-            "trading_account_id": resolved["configured_account"]["id"], "persistence": persistence}
+    pipeline_result = execute_pipeline(
+        trade_plan=trade_plan,
+        risk_context=application._get_risk_context(),
+        execute_live=True,
+    )
+    persistence = _persist_execution_lifecycle(
+        user_id=user_id,
+        requested_lot_size=float(request.lot_size),
+        requested_comment=request.comment,
+        trade_plan=trade_plan,
+        execution=pipeline_result,
+    )
+
+    live_stage = pipeline_result.get("live_execution")
+    live_result = (
+        live_stage.get("live_executor_result", {})
+        if isinstance(live_stage, dict)
+        else {}
+    )
+    send_result = (
+        live_result.get("mt5_order_send", {})
+        if isinstance(live_result, dict)
+        else {}
+    )
+    order_sent = bool(
+        live_stage.get("real_trade")
+        if isinstance(live_stage, dict)
+        else live_result.get("real_trade")
+    )
+    ticket = (
+        send_result.get("position")
+        or send_result.get("order")
+        or send_result.get("deal")
+        or live_result.get("position_ticket")
+        or live_result.get("order_ticket")
+        or live_result.get("deal_ticket")
+        or 0
+    )
+    return {
+        "status": "EXECUTED" if order_sent else "BLOCKED",
+        "order_sent": order_sent,
+        "ticket": ticket,
+        "retcode": send_result.get("retcode") or live_result.get("retcode"),
+        "reason": (
+            live_stage.get("reason")
+            if isinstance(live_stage, dict)
+            else None
+        ) or pipeline_result.get("reason"),
+        "details": pipeline_result,
+        "tenant_id": user_id,
+        "trading_account_id": resolved["configured_account"]["id"],
+        "persistence": persistence,
+    }
 
 
 @router.post("/close/{ticket}")
