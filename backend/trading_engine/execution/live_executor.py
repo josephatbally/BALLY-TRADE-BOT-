@@ -1969,15 +1969,15 @@ def close_position(ticket: int) -> Dict[str, Any]:
     Uses mt5.order_send with TRADE_ACTION_DEAL and position ticket.
     """
     if not MT5_AVAILABLE or mt5 is None:
-        return {"status": "FAILED", "reason": "MT5 unavailable"}
+        return {"status": "FAILED", "closed": False, "reason": "MT5 unavailable"}
 
     try:
         positions = mt5.positions_get(ticket=ticket)
     except Exception as exc:
-        return {"status": "FAILED", "reason": f"positions_get exception: {exc}"}
+        return {"status": "FAILED", "closed": False, "reason": f"positions_get exception: {exc}"}
 
     if not positions:
-        return {"status": "FAILED", "reason": f"Position {ticket} not found"}
+        return {"status": "FAILED", "closed": False, "reason": f"Position {ticket} not found"}
 
     pos = positions[0]
 
@@ -2000,27 +2000,42 @@ def close_position(ticket: int) -> Dict[str, Any]:
         "comment": f"BALLY close #{ticket}",
         "type_time": mt5.ORDER_TIME_GTC,
     }
+    symbol_info = mt5.symbol_info(pos.symbol)
+    try:
+        filling_mode = _get_filling_mode(symbol_info) if symbol_info is not None else None
+    except Exception:
+        filling_mode = None
+    if filling_mode is not None:
+        request["type_filling"] = filling_mode
 
     try:
         result = mt5.order_send(request)
     except Exception as exc:
-        return {"status": "FAILED", "reason": f"order_send exception: {exc}"}
+        return {"status": "FAILED", "closed": False, "reason": f"order_send exception: {exc}"}
 
     if result is None:
-        return {"status": "FAILED", "reason": "order_send returned None"}
+        return {"status": "FAILED", "closed": False, "reason": "order_send returned None"}
 
     retcode = getattr(result, "retcode", None)
-    if retcode in (mt5.TRADE_RETCODE_DONE, 10009):
-        return {
-            "status": "OK",
-            "ticket": ticket,
-            "message": f"Position {ticket} closed",
-        }
-
+    closed = retcode in (
+        getattr(mt5, "TRADE_RETCODE_DONE", 10009),
+        getattr(mt5, "TRADE_RETCODE_DONE_PARTIAL", 10010),
+    )
     return {
-        "status": "FAILED",
+        "status": "OK" if closed else "FAILED",
+        "closed": closed,
+        "ticket": ticket,
+        "symbol": pos.symbol,
+        "volume": pos.volume,
+        "price": getattr(result, "price", None),
+        "profit": float(getattr(pos, "profit", 0.0) or 0.0),
         "retcode": retcode,
+        "deal": getattr(result, "deal", None),
+        "order": getattr(result, "order", None),
         "comment": getattr(result, "comment", "close rejected"),
+        "request": _result_to_dict(getattr(result, "request", None)),
+        "result": _result_to_dict(result),
+        "last_error": _mt5_last_error(),
     }
 
 
