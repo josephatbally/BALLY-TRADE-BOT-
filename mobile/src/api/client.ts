@@ -33,16 +33,41 @@ export async function apiRequest<T>(
   }, API_TIMEOUT_MS);
 
   try {
-    // Phase 2: Retrieve authenticated JWT token
+    // Retrieve the real JWT session token used by protected trading routes.
+    // The token is persisted separately and also inside @bally_auth_user
+    // for backwards compatibility with existing installed builds.
     let authToken = '';
     try {
       authToken = (await AsyncStorage.getItem('@bally_auth_token')) || '';
+
       if (!authToken) {
         const storedUser = await AsyncStorage.getItem('@bally_auth_user');
         if (storedUser) {
           const parsed = JSON.parse(storedUser);
-          authToken = parsed.token || '';
+          if (parsed && typeof parsed.token === 'string') {
+            authToken = parsed.token.trim();
+          }
         }
+      }
+
+      // Never send development placeholder tokens to authenticated endpoints.
+      if (
+        authToken === 'dev-session-token' ||
+        authToken === 'authenticated-token' ||
+        authToken === 'null' ||
+        authToken === 'undefined'
+      ) {
+        authToken = '';
+      }
+
+      // Be tolerant if an older client persisted the complete Bearer value.
+      if (authToken.toLowerCase().startsWith('bearer ')) {
+        authToken = authToken.slice(7).trim();
+      }
+
+      // A valid BALLY FLOW JWT is three dot-separated segments.
+      if (authToken && authToken.split('.').length !== 3) {
+        authToken = '';
       }
     } catch {
       // Non-blocking if storage is unavailable
