@@ -3,10 +3,9 @@ BALLY FLOW - Terminal-attached trading-account runtime resolution.
 
 BALLY FLOW does NOT ask the user to log into MT5.
 
-The bot runs on the same machine as the MetaTrader 5 terminal and
-automatically adopts the account that is already open in that terminal.
-MT5 is the single source of truth for account identity and live state.
-Any DB-3 trading_accounts row is metadata only; it never gates trading.
+The bot runs on the same machine as the MetaTrader 5 terminal.
+The authenticated tenant must have an active DB-3 trading account, and the
+currently connected MT5 login must match that configured account identity.
 """
 
 from __future__ import annotations
@@ -59,39 +58,17 @@ def terminal_account_snapshot(live_account: Any) -> Dict[str, Any]:
 
 
 def resolve_authenticated_trading_account(user_id: int | str) -> Dict[str, Any]:
-    """
-    Resolve the account the bot trades on.
-
-    The account is always the one currently open in the running MT5
-    terminal. There is no credential entry and no identity gate; if the
-    terminal is running, the bot is ready.
-    """
+    """Resolve and authenticate the tenant's configured MT5 account."""
+    stored_account=get_authenticated_trading_account(user_id)
+    if not stored_account:
+        return {"status":"NO_ACCOUNT","configured_account":None,"stored_account":None,"live_account":None,"identity_match":False,"reason":"No active trading account is configured for this user."}
     if not is_mt5_connected():
-        ensure_mt5_connected()
-
-    if not is_mt5_connected():
-        return {
-            "status": "OFFLINE",
-            "configured_account": None,
-            "live_account": None,
-            "identity_match": False,
-            "reason": "MetaTrader 5 terminal is not running on this machine.",
-        }
-
-    live_account = get_account_info()
+        return {"status":"OFFLINE","configured_account":stored_account,"stored_account":stored_account,"live_account":None,"identity_match":False,"reason":"MetaTrader 5 terminal is not connected."}
+    live_account=get_account_info()
     if live_account is None:
-        return {
-            "status": "ACCOUNT_UNAVAILABLE",
-            "configured_account": None,
-            "live_account": None,
-            "identity_match": False,
-            "reason": "MetaTrader 5 is running but no account is logged in.",
-        }
-
-    return {
-        "status": "READY",
-        "configured_account": terminal_account_snapshot(live_account),
-        "stored_account": get_authenticated_trading_account(user_id),
-        "live_account": live_account,
-        "identity_match": True,
-    }
+        return {"status":"ACCOUNT_UNAVAILABLE","configured_account":stored_account,"stored_account":stored_account,"live_account":None,"identity_match":False,"reason":"MetaTrader 5 is connected but no account information is available."}
+    configured_number=str(stored_account.get("account_number","")).strip()
+    live_number=str(_read(live_account,"login","")).strip()
+    if not configured_number or configured_number != live_number:
+        return {"status":"ACCOUNT_MISMATCH","configured_account":stored_account,"stored_account":stored_account,"live_account":live_account,"identity_match":False,"reason":"Connected MT5 account does not match the authenticated user's configured trading account."}
+    return {"status":"READY","configured_account":stored_account,"stored_account":stored_account,"live_account":live_account,"identity_match":True}
