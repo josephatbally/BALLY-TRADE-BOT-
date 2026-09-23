@@ -301,6 +301,10 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
       const nameParts = (res.user?.full_name || fullName.trim() || "Trader").split(" ");
       const firstName = nameParts[0] || "Trader";
 
+      if (!res.token) {
+        throw new Error("Authentication succeeded without a valid session token. Please request a new verification code.");
+      }
+
       const authenticatedUser: AuthenticatedUser = {
         id: String(res.user?.id || idenToVerify.trim().toLowerCase()),
         email: res.user?.email || idenToVerify.trim().toLowerCase(),
@@ -308,14 +312,17 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
         displayName: res.user?.full_name || fullName.trim() || firstName,
         phone: res.user?.phone || `${selectedCountry.code} ${phone.trim()}`,
         countryCode: res.user?.country_code || selectedCountry.code,
-        token: res.token || "authenticated-token",
+        token: res.token,
       };
 
+      await AsyncStorage.setItem("@bally_auth_token", res.token);
       await AsyncStorage.setItem("@bally_auth_user", JSON.stringify(authenticatedUser));
       navigation.replace("MainTabs", authenticatedUser);
-    } catch {
-      // If delivery provider failed or offline, fall back directly to bypass so you are never locked out
-      await handleBypassOrContinue();
+    } catch (err: any) {
+      Alert.alert(
+        "Verification Failed",
+        err?.message || "Unable to authenticate this session. Please request a new verification code.",
+      );
     } finally {
       setLoading(false);
     }
@@ -323,30 +330,6 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
 
 
      
-  // NON-BLOCKING DEV BYPASS (Never blocks testing while SMS/WhatsApp/Email providers are in development)
-  const handleBypassOrContinue = async () => {
-    const idenToVerify = activeIdentifier || (authMode === "signin" ? loginIdentifier : email) || "trader@ballyflow.com";
-    const nameParts = (fullName.trim() || "Josephat Bally").split(" ");
-    const firstName = nameParts[0] || "Trader";
-
-    const authenticatedUser: AuthenticatedUser = {
-      id: String(idenToVerify.trim().toLowerCase()),
-      email: idenToVerify.trim().toLowerCase(),
-      firstName,
-      displayName: fullName.trim() || firstName,
-      phone: `${selectedCountry.code} ${phone.trim() || "000000000"}`,
-      countryCode: selectedCountry.code,
-      token: "dev-session-token",
-    };
-
-    // Save session so you stay logged in
-    try {
-      await AsyncStorage.setItem("@bally_auth_user", JSON.stringify(authenticatedUser));
-    } catch {}
-
-    navigation.replace("MainTabs", authenticatedUser);
-  };
-
   // RESEND OTP
   const handleResend = async () => {
     if (resendTimer > 0) return;
@@ -680,15 +663,6 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
                       VERIFY & LINK MT5 DESK →
                     </Text>
                   )}
-                </TouchableOpacity>
-                {/* NON-BLOCKING DIRECT ACCESS FOR TESTING */}
-                <TouchableOpacity
-                  style={[styles.primaryBtn, { backgroundColor: '#10B981', marginTop: 12 }]}
-                  onPress={handleBypassOrContinue}
-                >
-                  <Text style={styles.primaryBtnText} allowFontScaling={false}>
-                    ⚡ CONTINUE TO DESK (SKIP FOR NOW) →
-                  </Text>
                 </TouchableOpacity>
 
                 {/* BACK TO CREDENTIALS */}
