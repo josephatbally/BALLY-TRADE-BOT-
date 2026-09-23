@@ -725,6 +725,11 @@ class AutoTrader:
                 "preferred_lot": calculated_lot,
             }
 
+            # execute_trade_pipeline(execute_live=True) is the single
+            # authoritative live-execution call for SMC/HYBRID. It already
+            # performs the final gate, order build, MT5 order_check and
+            # mt5.order_send through the execution connector. Do not send
+            # the same order a second time here.
             res = execute_trade_pipeline(
                 trade_plan,
                 symbol_info=sym_info,
@@ -733,29 +738,42 @@ class AutoTrader:
                 reject_existing_position=True,
             )
 
-            if res.get("execution_allowed") or res.get("status") == "READY":
-                final_gate = res.get("final_gate", {})
-                gate_result = final_gate.get("gate_result", final_gate) if isinstance(final_gate, dict) else {}
-                builder_res = res.get("order_builder", {})
-                order_payload = builder_res.get("order") or builder_res.get("built_order") or trade_plan
-                while isinstance(order_payload, dict) and "order" in order_payload and isinstance(order_payload["order"], dict):
-                    order_payload = order_payload["order"]
-
-                live_res = await asyncio.to_thread(
-                    execute_live_trade, order=order_payload, gate=gate_result
+            live_stage = res.get("live_execution")
+            if isinstance(live_stage, dict) and live_stage.get("real_trade"):
+                live_result = live_stage.get("live_executor_result", {})
+                self._record_owner_tickets(
+                    live_result,
+                    symbol=symbol,
+                    action=action,
+                    lot=calculated_lot,
                 )
-                if live_res.get("status") in ("EXECUTED", "SUCCESS") or live_res.get("order_sent"):
-                    ticket = live_res.get("ticket") or live_res.get("deal") or live_res.get("order")
-                    self._record_owner_tickets(
-                        live_res, symbol=symbol, action=action, lot=calculated_lot
-                    )
-                    self._add_log("SUCCESS", f"Auto-trade placed: {action} {calculated_lot}L {symbol} (#{ticket}) [Conf: {confidence:.0f}%]")
-                    return True
-                else:
-                    self._add_log("WARNING", f"Auto-trade broker rejected: {live_res.get('reason')}")
-            else:
-                reason = res.get("reason") or "Safety pipeline blocked trade"
-                self._add_log("WARNING", f"Auto-trade safety blocked for {symbol}: {reason}")
+                send_result = (
+                    live_result.get("mt5_order_send", {})
+                    if isinstance(live_result, dict)
+                    else {}
+                )
+                ticket = (
+                    send_result.get("position")
+                    or send_result.get("order")
+                    or send_result.get("deal")
+                    or 0
+                )
+                self._add_log(
+                    "SUCCESS",
+                    f"Auto-trade placed: {action} {calculated_lot}L {symbol} "
+                    f"(#{ticket}) [Conf: {confidence:.0f}%]",
+                )
+                return True
+
+            reason = (
+                live_stage.get("reason")
+                if isinstance(live_stage, dict)
+                else res.get("reason")
+            ) or "Safety/execution pipeline blocked trade"
+            self._add_log(
+                "WARNING",
+                f"Auto-trade not executed on {symbol}: {reason}",
+            )
         except Exception as scan_err:
             self._add_log("WARNING", f"Scan error on {symbol}: {scan_err}")
         return False
