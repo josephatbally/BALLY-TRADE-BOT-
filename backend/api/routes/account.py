@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends
 
-from backend.security.jwt_auth import get_current_user_optional
+from backend.security.jwt_auth import get_current_user
 from backend.trading_engine.trading_account_runtime import resolve_authenticated_trading_account
 from backend.trading_engine.market_data.mt5_connection import (
     get_account_info,
@@ -38,7 +38,7 @@ def _safe_int(value: Any, default: int = 0) -> int:
 
 
 @router.get("")
-def get_account(user: Dict[str, Any] = Depends(get_current_user_optional)) -> Dict[str, Any]:
+def get_account(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     """Return the authenticated tenant's live MT5 account state."""
     try:
         user_id = int(user["id"]) if isinstance(user, dict) else None
