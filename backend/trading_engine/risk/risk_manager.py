@@ -149,10 +149,9 @@ HARD_MAX_RISK_PERCENT = 2.0
 # ======================================================================
 
 MIN_RR = 1.0
-BENCHMARK_RR = 3.0
-
-# 3R is a benchmark, not a maximum.
-BENCHMARK_RR = 3.0
+MAXIMUM_RR = 3.0
+# Backward-compatible alias.
+BENCHMARK_RR = MAXIMUM_RR
 
 RR_TOLERANCE = 1e-9
 
@@ -298,7 +297,6 @@ def risk_manager_info() -> Dict[str, Any]:
         "name": NAME,
         "version": VERSION,
         "status": "READY",
-
         "supported_signals": list(SUPPORTED_SIGNALS),
         "supported_timeframes": list(SUPPORTED_TIMEFRAMES),
 
@@ -307,7 +305,7 @@ def risk_manager_info() -> Dict[str, Any]:
             "coordinate_structural_stop_loss",
             "coordinate_structural_take_profit",
             "enforce_minimum_rr",
-            "benchmark_rr",
+            "maximum_rr",
             "coordinate_intelligent_position_sizing",
             "coordinate_margin_verification",
             "apply_progressive_risk_reduction",
@@ -320,6 +318,7 @@ def risk_manager_info() -> Dict[str, Any]:
         "hard_max_risk_percent": HARD_MAX_RISK_PERCENT,
 
         "minimum_rr": MIN_RR,
+        "maximum_rr": MAXIMUM_RR,
         "benchmark_rr": BENCHMARK_RR,
 
         "default_margin_safety_buffer_percent":
@@ -597,7 +596,6 @@ def calculate_adjusted_risk_percent(
             MINIMUM_RISK_PERCENT,
     }
 
-
 # ======================================================================
 # RISK / REWARD VALIDATION
 # ======================================================================
@@ -617,7 +615,7 @@ def validate_risk_reward(
 
         RR >= 1R
 
-    3R is a benchmark only and is not a maximum.
+    RR must satisfy 1R <= RR <= 3R.
     """
 
     decision = _normalize_signal(signal)
@@ -753,6 +751,29 @@ def validate_risk_reward(
     
 
     # ==================================================================
+    # MAXIMUM RR
+    # ==================================================================
+
+    if rr > MAXIMUM_RR + RR_TOLERANCE:
+        return {
+            "status": "BLOCKED",
+            "valid": False,
+            "risk_authorized": False,
+            "signal": decision,
+            "entry": entry_price,
+            "stop_loss": stop,
+            "take_profit": target,
+            "risk_distance": risk_distance,
+            "reward_distance": reward_distance,
+            "rr": round(rr, 6),
+            "minimum_rr": MIN_RR,
+            "maximum_rr": MAXIMUM_RR,
+            "benchmark_rr": BENCHMARK_RR,
+            "reason": f"risk reward exceeds maximum {MAXIMUM_RR}:1",
+        }
+
+
+    # ==================================================================
     # AUTHORIZED
     # ==================================================================
 
@@ -776,6 +797,7 @@ def validate_risk_reward(
             f"1:{round(rr, 2)}",
 
         "minimum_rr": MIN_RR,
+        "maximum_rr": MAXIMUM_RR,
         "benchmark_rr": BENCHMARK_RR,
     }
 
@@ -898,7 +920,6 @@ def evaluate_account_drawdown(
     Fails closed when the module is unavailable or returns an
     unusable result.
     """
-
     if evaluate_drawdown is None:
 
         return {
@@ -1298,850 +1319,3 @@ def evaluate_risk(
     starting_balance: Any = None,
     starting_day_balance: Any = None,
     max_drawdown_percent: float = 20.0,
-    max_daily_loss_percent: float = 5.0,
-    margin_safety_buffer_percent:
-        float = DEFAULT_MARGIN_SAFETY_BUFFER_PERCENT,
-    symbol_info: Any = None,
-) -> Dict[str, Any]:
-    """
-    Complete central risk-management pipeline.
-
-    The upstream Decision Engine remains authoritative.
-
-    This function:
-
-        1. validates the decision
-        2. evaluates drawdown
-        3. calculates adjusted risk
-        4. calculates structural SL
-        5. calculates structural TP
-        6. independently validates RR
-        7. calculates broker-aware position size
-        8. applies soft preferred-lot policy
-        9. verifies margin
-        10. performs final risk consistency checks
-        11. returns risk authorization
-
-    This function never places an order.
-    """
-
-    decision = _normalize_signal(signal)
-
-    context = (
-        market_context
-        if isinstance(market_context, dict)
-        else {}
-    )
-
-    symbol_name = str(symbol or "").strip()
-
-
-    # ==================================================================
-    # 1. DECISION VALIDATION
-    # ==================================================================
-
-    if decision not in SUPPORTED_SIGNALS:
-
-        return _blocked_result(
-            decision,
-            symbol_name,
-            "invalid upstream decision",
-        )
-
-
-    # ==================================================================
-    # 2. NO_TRADE IS TERMINAL
-    # ==================================================================
-
-    if decision == "NO_TRADE":
-
-        return _blocked_result(
-            decision,
-            symbol_name,
-            "NO_TRADE cannot enter risk management",
-        )
-
-
-    # ==================================================================
-    # 3. SYMBOL
-    # ==================================================================
-
-    if not symbol_name:
-
-        return _blocked_result(
-            decision,
-            symbol_name,
-            "symbol is required",
-        )
-
-
-    # ==================================================================
-    # 4. ENTRY
-    # ==================================================================
-
-    entry_price = _safe_float(entry)
-
-    if entry_price is None or entry_price <= 0:
-
-        return _blocked_result(
-            decision,
-            symbol_name,
-            "valid entry price is required",
-        )
-
-
-    # ==================================================================
-    # 5. DRAWDOWN PROTECTION
-    # ==================================================================
-
-    drawdown = evaluate_account_drawdown(
-        balance=account_balance,
-        equity=account_equity,
-        starting_balance=starting_balance,
-        max_drawdown_percent=max_drawdown_percent,
-        starting_day_balance=starting_day_balance,
-        max_daily_loss_percent=max_daily_loss_percent,
-    )
-
-
-    if not _result_valid(drawdown):
-
-        return _blocked_result(
-            decision,
-            symbol_name,
-            "drawdown protection did not authorize risk",
-            drawdown=drawdown,
-        )
-
-
-    # ==================================================================
-    # 6. ADJUSTED RISK
-    # ==================================================================
-
-    risk_adjustment = calculate_adjusted_risk_percent(
-        base_risk_percent=base_risk_percent,
-        drawdown_result=drawdown,
-        opportunity_score=opportunity_score,
-    )
-
-
-    if not _result_valid(risk_adjustment):
-
-        return _blocked_result(
-            decision,
-            symbol_name,
-            "risk adjustment was not authorized",
-            drawdown=drawdown,
-            risk_adjustment=risk_adjustment,
-        )
-
-
-    adjusted_risk_percent = _safe_float(
-        risk_adjustment.get("adjusted_risk_percent")
-    )
-
-
-    if (
-        adjusted_risk_percent is None
-        or adjusted_risk_percent <= 0
-        or adjusted_risk_percent > HARD_MAX_RISK_PERCENT
-    ):
-
-        return _blocked_result(
-            decision,
-            symbol_name,
-            "adjusted risk is invalid",
-            drawdown=drawdown,
-            risk_adjustment=risk_adjustment,
-        )
-
-
-    # ==================================================================
-    # 7. STRUCTURAL STOP LOSS
-    # ==================================================================
-
-    stop_result = _calculate_structural_stop_loss(
-        decision=decision,
-        entry_price=entry_price,
-        context=context,
-    )
-
-
-    if not _result_valid(stop_result):
-
-        return _blocked_result(
-            decision,
-            symbol_name,
-            "stop loss was not authorized",
-            drawdown=drawdown,
-            risk_adjustment=risk_adjustment,
-            stop_loss=stop_result,
-        )
-
-
-    stop_loss = _safe_float(
-        stop_result.get("stop_loss")
-    )
-
-
-    if stop_loss is None or stop_loss <= 0:
-
-        return _blocked_result(
-            decision,
-            symbol_name,
-            "stop loss value is missing or invalid",
-            drawdown=drawdown,
-            risk_adjustment=risk_adjustment,
-            stop_loss=stop_result,
-        )
-
-
-    # ==================================================================
-    # 8. INDEPENDENT STOP-LOSS DIRECTION CHECK
-    # ==================================================================
-
-    if decision == "BUY" and stop_loss >= entry_price:
-
-        return _blocked_result(
-            decision,
-            symbol_name,
-            "BUY stop loss must be below entry",
-            stop_loss=stop_result,
-        )
-
-
-    if decision == "SELL" and stop_loss <= entry_price:
-
-        return _blocked_result(
-            decision,
-            symbol_name,
-            "SELL stop loss must be above entry",
-            stop_loss=stop_result,
-        )
-
-
-    # ==================================================================
-    # 9. STRUCTURAL TAKE PROFIT
-    # ==================================================================
-
-    tp_result = _calculate_structural_take_profit(
-        decision=decision,
-        entry_price=entry_price,
-        stop_loss=stop_loss,
-        context=context,
-    )
-
-
-    if not _result_valid(tp_result):
-
-        return _blocked_result(
-            decision,
-            symbol_name,
-            "take profit was not authorized",
-            drawdown=drawdown,
-            risk_adjustment=risk_adjustment,
-            stop_loss=stop_result,
-            take_profit=tp_result,
-        )
-
-
-    take_profit = _safe_float(
-        tp_result.get("take_profit")
-    )
-
-
-    if take_profit is None or take_profit <= 0:
-
-        return _blocked_result(
-            decision,
-            symbol_name,
-            "take profit value is missing or invalid",
-            stop_loss=stop_result,
-            take_profit=tp_result,
-        )
-
-
-    # ==================================================================
-    # 10. INDEPENDENT TAKE-PROFIT DIRECTION CHECK
-    # ==================================================================
-
-    if decision == "BUY" and take_profit <= entry_price:
-
-        return _blocked_result(
-            decision,
-            symbol_name,
-            "BUY take profit must be above entry",
-            stop_loss=stop_result,
-            take_profit=tp_result,
-        )
-
-
-    if decision == "SELL" and take_profit >= entry_price:
-
-        return _blocked_result(
-            decision,
-            symbol_name,
-            "SELL take profit must be below entry",
-            stop_loss=stop_result,
-            take_profit=tp_result,
-        )
-
-
-    # ==================================================================
-    # 11. INDEPENDENT RR SAFETY CHECK
-    # ==================================================================
-
-    rr_result = validate_risk_reward(
-        signal=decision,
-        entry=entry_price,
-        stop_loss=stop_loss,
-        take_profit=take_profit,
-    )
-
-
-    if not _result_valid(rr_result):
-
-        return _blocked_result(
-            decision,
-            symbol_name,
-            rr_result.get(
-                "reason",
-                "risk reward validation failed",
-            ),
-            drawdown=drawdown,
-            risk_adjustment=risk_adjustment,
-            stop_loss=stop_result,
-            take_profit=tp_result,
-            risk_reward=rr_result,
-        )
-
-
-    # ==================================================================
-    # 12. POSITION SIZING
-    # ==================================================================
-
-    sizing_result = _calculate_broker_aware_position_size(
-        decision=decision,
-        symbol_name=symbol_name,
-        entry_price=entry_price,
-        stop_loss=stop_loss,
-        account_balance=account_balance,
-        account_equity=account_equity,
-        adjusted_risk_percent=adjusted_risk_percent,
-        preferred_lot=preferred_lot,
-        opportunity_score=opportunity_score,
-        symbol_info=symbol_info,
-    )
-
-
-    if not _result_valid(sizing_result):
-
-        return _blocked_result(
-            decision,
-            symbol_name,
-            "position sizing was not authorized",
-            drawdown=drawdown,
-            risk_adjustment=risk_adjustment,
-            stop_loss=stop_result,
-            take_profit=tp_result,
-            risk_reward=rr_result,
-            position_sizing=sizing_result,
-        )
-
-
-    volume = _safe_float(
-        sizing_result.get("volume")
-    )
-
-
-    if volume is None or volume <= 0:
-
-        return _blocked_result(
-            decision,
-            symbol_name,
-            "position sizing returned invalid volume",
-            position_sizing=sizing_result,
-        )
-
-
-    # ==================================================================
-    # 13. PREFERRED LOT SOFT POLICY
-    # ==================================================================
-
-    preferred_result = apply_preferred_lot_policy(
-        calculated_volume=volume,
-        preferred_lot=preferred_lot,
-    )
-
-
-    if not _result_valid(preferred_result):
-
-        return _blocked_result(
-            decision,
-            symbol_name,
-            preferred_result.get(
-                "reason",
-                "preferred lot policy failed",
-            ),
-            position_sizing=sizing_result,
-            preferred_lot=preferred_result,
-        )
-
-
-    # ==================================================================
-    # 14. FINAL VOLUME
-    # ==================================================================
-    #
-    # The position-sizing engine remains authoritative.
-    #
-    # Never replace it with preferred_lot.
-    #
-
-    final_volume = volume
-
-
-    # ==================================================================
-    # 15. MARGIN VERIFICATION
-    # ==================================================================
-
-    margin_result = _check_trade_margin(
-        decision=decision,
-        symbol_name=symbol_name,
-        volume=final_volume,
-        margin_safety_buffer_percent=
-            margin_safety_buffer_percent,
-    )
-
-
-    if not _result_valid(margin_result):
-
-        return _blocked_result(
-            decision,
-            symbol_name,
-            margin_result.get(
-                "reason",
-                "margin authorization failed",
-            ),
-            drawdown=drawdown,
-            risk_adjustment=risk_adjustment,
-            stop_loss=stop_result,
-            take_profit=tp_result,
-            risk_reward=rr_result,
-            position_sizing=sizing_result,
-            preferred_lot=preferred_result,
-            margin=margin_result,
-        )
-
-
-    # ==================================================================
-    # 16. FINAL RISK CONSISTENCY CHECKS
-    # ==================================================================
-
-    checks = {
-
-        "decision_valid":
-            decision in ("BUY", "SELL"),
-
-        "drawdown_authorized":
-            _result_valid(drawdown),
-
-        "risk_percent_valid":
-            (
-                adjusted_risk_percent > 0
-                and adjusted_risk_percent
-                    <= HARD_MAX_RISK_PERCENT
-            ),
-
-        "stop_loss_valid":
-            _result_valid(stop_result)
-            and (
-                (
-                    decision == "BUY"
-                    and stop_loss < entry_price
-                )
-                or
-                (
-                    decision == "SELL"
-                    and stop_loss > entry_price
-                )
-            ),
-
-        "take_profit_valid":
-            _result_valid(tp_result)
-            and (
-                (
-                    decision == "BUY"
-                    and take_profit > entry_price
-                )
-                or
-                (
-                    decision == "SELL"
-                    and take_profit < entry_price
-                )
-            ),
-
-        "rr_valid":
-            (
-                _result_valid(rr_result)
-                and rr_result.get("rr") is not None
-                and rr_result["rr"]
-                    >= MIN_RR - RR_TOLERANCE
-            ),
-
-        "position_size_valid":
-            (
-                _result_valid(sizing_result)
-                and final_volume > 0
-            ),
-
-        "preferred_lot_policy_valid":
-            _result_valid(preferred_result),
-
-        "margin_authorized":
-            _result_valid(margin_result),
-    }
-
-
-    all_checks_passed = all(
-        checks.values()
-    )
-
-
-    # ==================================================================
-    # 17. FAIL CLOSED
-    # ==================================================================
-
-    if not all_checks_passed:
-
-        failed_checks = [
-            name
-            for name, passed in checks.items()
-            if not passed
-        ]
-
-        return _blocked_result(
-            decision,
-            symbol_name,
-            "one or more final risk checks failed",
-
-            checks=checks,
-            failed_checks=failed_checks,
-
-            drawdown=drawdown,
-            risk_adjustment=risk_adjustment,
-            stop_loss=stop_result,
-            take_profit=tp_result,
-            risk_reward=rr_result,
-            position_sizing=sizing_result,
-            preferred_lot=preferred_result,
-            margin=margin_result,
-        )
-
-
-    # ==================================================================
-    # 18. FINAL RISK-AUTHORIZED TRADE PLAN
-    # ==================================================================
-
-    trade_plan = {
-
-        "symbol":
-            symbol_name,
-
-        "decision":
-            decision,
-
-        "entry":
-            entry_price,
-
-        "stop_loss":
-            stop_loss,
-
-        "take_profit":
-            take_profit,
-
-        "volume":
-            final_volume,
-
-        "risk_percent":
-            adjusted_risk_percent,
-
-        "risk_reward":
-            rr_result["risk_reward"],
-
-        "rr":
-            rr_result["rr"],
-
-        "minimum_rr":
-            MIN_RR,
-
-        "benchmark_rr":
-            BENCHMARK_RR,
-
-        "preferred_lot":
-            preferred_lot,
-
-        "preferred_lot_is_hard":
-            False,
-    }
-
-
-    # ==================================================================
-    # 19. RISK AUTHORIZATION RESULT
-    # ==================================================================
-    #
-    # IMPORTANT:
-    #
-    # risk_authorized=True means ONLY that the risk-management layer
-    # has authorized the trade plan.
-    #
-    # It does NOT mean:
-    #
-    #     - Final Gate passed
-    #     - Order Builder executed
-    #     - Executor executed
-    #     - MT5 accepted the order
-    #     - A real trade exists
-    #
-    # The downstream pipeline remains responsible for those stages.
-    #
-
-    return {
-
-        "status":
-            "READY",
-
-        "risk_authorized":
-            True,
-
-        "decision":
-            decision,
-
-        "symbol":
-            symbol_name,
-
-        "trade_plan":
-            trade_plan,
-
-        "drawdown":
-            drawdown,
-
-        "risk_adjustment":
-            risk_adjustment,
-
-        "stop_loss":
-            stop_result,
-
-        "take_profit":
-            tp_result,
-
-        "risk_reward":
-            rr_result,
-
-        "position_sizing":
-            sizing_result,
-
-        "preferred_lot":
-            preferred_result,
-
-        "margin":
-            margin_result,
-
-        "checks":
-            checks,
-
-        "failed_checks":
-            [],
-
-        # --------------------------------------------------------------
-        # Downstream permissions
-        # --------------------------------------------------------------
-        #
-        # These are deliberately FALSE here.
-        #
-        # Final Gate owns final downstream authorization.
-        #
-
-        "execution_allowed":
-            False,
-
-        "order_builder_allowed":
-            False,
-
-        "final_gate_required":
-            True,
-
-        "final_gate_passed":
-            False,
-
-        "mt5_order_check":
-            False,
-
-        "mt5_order_send":
-            False,
-
-        "real_trade":
-            False,
-
-        "reason":
-            "all risk-management checks authorized; "
-            "awaiting downstream Final Gate",
-    }
-
-
-# ======================================================================
-# COMPATIBILITY ALIASES
-# ======================================================================
-
-def manage_risk(
-    *args: Any,
-    **kwargs: Any,
-) -> Dict[str, Any]:
-    """
-    Compatibility alias for evaluate_risk().
-    """
-
-    return evaluate_risk(
-        *args,
-        **kwargs,
-    )
-
-
-def calculate_risk(
-    *args: Any,
-    **kwargs: Any,
-) -> Dict[str, Any]:
-    """
-    Compatibility alias for evaluate_risk().
-    """
-
-    return evaluate_risk(
-        *args,
-        **kwargs,
-    )
-
-
-def authorize_risk(
-    *args: Any,
-    **kwargs: Any,
-) -> Dict[str, Any]:
-    """
-    Compatibility alias for evaluate_risk().
-    """
-
-    return evaluate_risk(
-        *args,
-        **kwargs,
-    )
-
-
-# ======================================================================
-# SELF TEST
-# ======================================================================
-
-if __name__ == "__main__":
-
-    print("==============================================")
-    print("BALLY FLOW INTELLIGENT RISK MANAGER")
-    print("==============================================")
-
-    print()
-    print("MODULE INFO:")
-
-    print(
-        risk_manager_info()
-    )
-
-    print()
-    print("RR TEST:")
-
-    rr = validate_risk_reward(
-        signal="BUY",
-        entry=4700.0,
-        stop_loss=4680.0,
-        take_profit=4760.0,
-    )
-
-    print(rr)
-
-    print()
-    print("RR ABOVE BENCHMARK TEST:")
-
-    rr_above_benchmark = validate_risk_reward(
-        signal="BUY",
-        entry=4700.0,
-        stop_loss=4680.0,
-        take_profit=4770.0,
-    )
-
-    print(rr_max)
-
-    print()
-    print("RR BELOW MINIMUM TEST:")
-
-    rr_min = validate_risk_reward(
-        signal="BUY",
-        entry=4700.0,
-        stop_loss=4680.0,
-        take_profit=4710.0,
-    )
-
-    print(rr_min)
-
-    print()
-    print("PREFERRED LOT TEST:")
-
-    preferred = apply_preferred_lot_policy(
-        calculated_volume=0.01,
-        preferred_lot=0.05,
-    )
-
-    print(preferred)
-
-    print()
-    print("RISK PERCENT TEST:")
-
-    risk = calculate_adjusted_risk_percent(
-        base_risk_percent=1.0,
-        drawdown_result={
-            "valid": True,
-            "risk_authorized": True,
-            "risk_multiplier": 0.75,
-        },
-        opportunity_score=85,
-    )
-
-    print(risk)
-
-    print()
-    print("ZERO DRAWDOWN MULTIPLIER TEST:")
-
-    zero_risk = calculate_adjusted_risk_percent(
-        base_risk_percent=1.0,
-        drawdown_result={
-            "valid": True,
-            "risk_authorized": True,
-            "risk_multiplier": 0.0,
-        },
-        opportunity_score=90,
-    )
-
-    print(zero_risk)
-
-    print()
-    print("NO_TRADE TEST:")
-
-    no_trade = evaluate_risk(
-        signal="NO_TRADE",
-        symbol="XAUUSD",
-        entry=4700.0,
-    )
-
-    print(no_trade)
-
-    print()
-    print("==============================================")
-    print("RISK MANAGER SELF-TEST COMPLETE")
-    print("==============================================")
-
-
-
