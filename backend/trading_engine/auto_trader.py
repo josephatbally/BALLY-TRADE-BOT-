@@ -185,8 +185,10 @@ class AutoTrader:
         broker_send = live_res.get("mt5_order_send", {})
         tickets = {
             live_res.get("ticket"),
+            live_res.get("position"),
             live_res.get("deal"),
             live_res.get("order"),
+            broker_send.get("position") if isinstance(broker_send, dict) else None,
             broker_send.get("order") if isinstance(broker_send, dict) else None,
             broker_send.get("deal") if isinstance(broker_send, dict) else None,
         }
